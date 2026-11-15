@@ -1,7 +1,10 @@
 name: ci
 
 on:
+  # Pull requests are covered by the pull_request event; running push on every branch too
+  # would run each PR twice.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -31,7 +34,7 @@ jobs:
       - run: cargo test --workspace
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-pack
+          tool: wasm-pack@0.15.1
       - run: wasm-pack test --node crates/sync-crdt
       # TODO(phase 1): cargo llvm-cov -p sync-crdt --fail-under-lines 90
       # TODO(phase 1): cargo llvm-cov -p server --fail-under-lines 75
@@ -47,7 +50,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-pack
+          tool: wasm-pack@0.15.1
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: apps/web/package.json
@@ -79,7 +82,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-pack
+          tool: wasm-pack@0.15.1
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: apps/web/package.json

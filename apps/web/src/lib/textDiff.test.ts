@@ -110,3 +110,45 @@ describe("shiftOffset", () => {
     expect(shiftOffset(3, { index: 2, deleteCount: 4, insert: "" })).toBe(2);
   });
 });
+
+describe("diffText surrogate and boundary edge cases", () => {
+  it("does not split a pair when only the high halves differ (shared low half)", () => {
+    // U+1F600 is D83D DE00 and U+1F300 is D83C DF00; build a pair sharing the low unit.
+    const prev = "😀";
+    const next = "🈀";
+    const diff = diffText(prev, next);
+    expect(diff).toEqual({ index: 0, deleteCount: 2, insert: next });
+  });
+
+  it("keeps a common suffix after an emoji replaced by plain text", () => {
+    expect(diffText("x🙂end", "xYend")).toEqual({ index: 1, deleteCount: 2, insert: "Y" });
+  });
+
+  it("round-trips lone surrogates without throwing", () => {
+    const prev = "a\ud83db";
+    const next = "a\ude42b";
+    const diff = diffText(prev, next);
+    expect(diff).not.toBeNull();
+    if (diff) expect(applyDiff(prev, diff)).toBe(next);
+  });
+
+  it("handles a very long text with one edit in the middle", () => {
+    const prev = "a".repeat(100_000);
+    const next = prev.slice(0, 50_000) + "b" + prev.slice(50_000);
+    expect(diffText(prev, next)).toEqual({ index: 50_000, deleteCount: 0, insert: "b" });
+  });
+});
+
+describe("shiftOffset boundaries", () => {
+  it("moves an offset exactly at the end of a removed range by the net change", () => {
+    expect(shiftOffset(6, { index: 2, deleteCount: 4, insert: "ab" })).toBe(4);
+  });
+
+  it("treats a pure insert at the offset as leaving the offset before it", () => {
+    expect(shiftOffset(2, { index: 2, deleteCount: 0, insert: "zz" })).toBe(2);
+  });
+
+  it("keeps the offset at zero for an edit at the start", () => {
+    expect(shiftOffset(0, { index: 0, deleteCount: 3, insert: "" })).toBe(0);
+  });
+});

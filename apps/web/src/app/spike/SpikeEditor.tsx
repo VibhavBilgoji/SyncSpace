@@ -9,7 +9,7 @@ import { diffText, shiftOffset } from "@/lib/textDiff";
 
 const WS_URL = `${process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080"}/spike`;
 
-type Status = "loading" | "connecting" | "connected" | "disconnected";
+type Status = "loading" | "connecting" | "connected" | "disconnected" | "error";
 
 /** A random 53-bit id. Wasm has no randomness of its own, so the page supplies it. */
 function randomClientId(): number {
@@ -22,6 +22,8 @@ function randomClientId(): number {
 export default function SpikeEditor() {
   const [status, setStatus] = useState<Status>("loading");
   const [length, setLength] = useState(0);
+  // True once the relay's full state has been applied, so tests do not race it.
+  const [synced, setSynced] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const docRef = useRef<WasmDoc | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -49,38 +51,58 @@ export default function SpikeEditor() {
       setLength(next.length);
     };
 
-    void init().then(() => {
-      if (cancelled) return;
-      doc = new WasmDoc(randomClientId());
-      docRef.current = doc;
-      setStatus("connecting");
+    init()
+      .then(() => {
+        if (cancelled) return;
+        doc = new WasmDoc(randomClientId());
+        docRef.current = doc;
+        setStatus("connecting");
 
-      ws = new WebSocket(WS_URL);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
-      ws.onopen = () => {
-        setStatus("connected");
-        // Share anything typed while connecting; applying an update twice is harmless.
-        if (doc && doc.text() !== "") ws?.send(doc.encodeStateAsUpdate());
-      };
-      ws.onclose = () => setStatus("disconnected");
-      ws.onmessage = (event: MessageEvent) => {
-        if (!(event.data instanceof ArrayBuffer) || !doc) return;
-        try {
-          doc.applyUpdate(new Uint8Array(event.data));
-        } catch {
-          return; // an invalid update changes nothing
-        }
-        refreshFromDoc();
-      };
-    });
+        ws = new WebSocket(WS_URL);
+        ws.binaryType = "arraybuffer";
+        wsRef.current = ws;
+        ws.onopen = () => {
+          setStatus("connected");
+          // Share anything typed while connecting; applying an update twice is harmless.
+          if (doc && doc.text() !== "") ws?.send(doc.encodeStateAsUpdate());
+        };
+        ws.onclose = () => setStatus("disconnected");
+        ws.onmessage = (event: MessageEvent) => {
+          if (!(event.data instanceof ArrayBuffer) || !doc) return;
+          try {
+            doc.applyUpdate(new Uint8Array(event.data));
+          } catch (error) {
+            // An invalid or oversized update changes nothing. Say so instead of showing a
+            // silently empty editor next to a "connected" status.
+            console.error("could not apply an update from the relay", error);
+            setStatus("error");
+            return;
+          }
+          refreshFromDoc();
+          // The first frame is the relay's full state; after it the editor is in sync.
+          setSynced(true);
+        };
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("could not load the Wasm module", error);
+        setStatus("error");
+      });
 
     return () => {
       cancelled = true;
-      ws?.close();
+      if (ws) {
+        // A socket that is closing must not update the state of a newer mount.
+        ws.onopen = null;
+        ws.onclose = null;
+        ws.onmessage = null;
+        ws.close();
+      }
       wsRef.current = null;
       docRef.current = null;
-      doc?.free();
+      const finished = doc;
+      doc = null; // late callbacks see no document instead of a freed one
+      finished?.free();
     };
   }, []);
 
@@ -106,12 +128,14 @@ export default function SpikeEditor() {
 
   return (
     <div>
-      <p data-testid="spike-status">{status}</p>
+      <p data-testid="spike-status" data-synced={synced}>
+        {status}
+      </p>
       <textarea
         ref={textareaRef}
         data-testid="spike-text"
         aria-label="Shared text"
-        disabled={status === "loading"}
+        disabled={status === "loading" || status === "error"}
         rows={8}
         cols={60}
         onInput={onInput}

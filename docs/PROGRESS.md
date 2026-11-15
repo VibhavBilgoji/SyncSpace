@@ -6,7 +6,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 
 | Phase | Status | Tag |
 |---|---|---|
-| 0 Bootstrap and spike | in progress (0.1, 0.2 done; 0.3 implemented, CI pending) | |
+| 0 Bootstrap and spike | complete, review fixes in PR; ready to tag `phase-0` | |
 | 1 Accounts, workspaces, design system | not started | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
@@ -21,6 +21,9 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | Date | Task | Result | Tests added | Notes |
 |---|---|---|---|---|
 | 2026-11-15 | 0.1 Monorepo bootstrap | done | 4 (2 Rust, 1 Vitest, 1 Playwright x2 browsers) | `cargo test`, web lint/typecheck/test/build and e2e smoke all green. Docker compose file not run (Docker not installed) |
+| 2026-11-15 | 0.2 CI workflow | done (PR #1, green) | 0 (config only) | First run failed at `typecheck` (generated `LayoutProps` missing on a clean checkout); fixed with `next typegen` |
+| 2026-11-15 | 0.3 Yrs native + Wasm spike | done (PR #2, green) | 9 convergence + 2 parity + 6 relay, 5 Wasm, 16 web, 2 e2e specs x 2 browsers; replaced 2 placeholders | **Yrs works in Wasm: parity passes, byte-identical.** See "Spike 0.3 findings" |
+| 2026-11-15 | Phase 0 review | fixes in PR | +31 tests from `test-writer`, +2 from review (mutation property test, regression) | Final counts: native 18 convergence + 9 parity (+1 ignored generator) + 11 relay, 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
 
 ## Decisions made during implementation
 
@@ -33,7 +36,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - Size: the `--release` `.wasm` is 425 KB after `wasm-opt`.
 - **Offsets are UTF-16** (`OffsetKind::Utf16`) in both builds, so indices match JS strings and textarea selection. Yrs defaults to bytes; the default would corrupt non-ASCII edits.
 - **Client ids and the guid are always passed in.** On `wasm32-unknown-unknown`, `fastrand` has no entropy source (its seed is `None`), so Yrs' "random" client id and UUID would be the same in every tab, and two tabs sharing a client id corrupt the document. The page takes a 53-bit id from `crypto.getRandomValues`; the doc guid is a constant. Use `Options::with_guid_and_client_id`, never `Doc::new()`, in Phase 2.
-- **Yrs panics on hostile input in debug builds.** Decoding an update whose client id does not fit in 53 bits trips a `debug_assert!` (`yrs` `block.rs:93`). The 10 000-case property test found it. Natively, `SpikeDoc::apply_update` decodes inside `catch_unwind` (decoding happens before the document is touched). Panics abort on Wasm, so only the server must accept untrusted bytes, and it validates before relaying.
+- **Yrs panics on hostile input.** (1) Decoding an update whose client id does not fit in 53 bits trips a `debug_assert!` in debug builds (`yrs` `block.rs:93`). (2) One flipped byte in a valid update can decode and apply, then make the next `encode_state_as_update` panic inside Yrs (`merge_pending_v1` unwraps, `transaction.rs:390`); the relay encodes the state for every joining client, so one hostile update could break the room. Found by the property tests. `SpikeDoc::apply_update` now decodes inside `catch_unwind` and only accepts updates that survive an encode and decode round trip. Panics abort on Wasm, so only the server accepts untrusted bytes, and it validates before relaying. Phase 2 must keep this guard and add fuzzing (Phase 7).
 - **Frame size limit:** the WebSocket library drops the TCP connection without a close frame when a frame exceeds its limit, so a clean `1009` needs our own check below a higher library cap (1 MiB check, 4 MiB cap). The Phase 2 hub should copy this.
 - Turbopack bundles the `wasm-bindgen --target web` output as a hashed static asset (`sync_crdt_bg.<hash>.wasm`); the public-folder fallback was not needed.
 - `wasm-pack` 0.15.1 installs with `cargo install wasm-pack --locked`; CI uses `taiki-e/install-action`.
@@ -46,7 +49,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - 0.3: local edits return their update bytes (`insert`/`delete` give `Vec<u8>` / `Uint8Array`) instead of exposing a Yrs observer callback: the observer needs `Send + Sync` callbacks, which a JS function is not, and returning bytes is simpler and cannot re-enter.
 - 0.3: e2e runs with one worker because the throwaway relay holds a single shared document.
 - 0.3: native test files use an inner `#![allow(clippy::unwrap_used, clippy::expect_used)]`, since clippy's `allow-unwrap-in-tests` does not cover helper functions in integration tests.
-- 0.2: gates that cannot pass yet are `# TODO(task)` stubs in `ci.yml` (wasm-pack, llvm-cov thresholds, web coverage, generated types, Mongo service). `DEPLOYMENT.md` §4 explains the current state.
+- 0.2: gates that cannot pass yet are `# TODO(task)` stubs in `ci.yml` (llvm-cov thresholds, web coverage, generated types, Mongo service). `DEPLOYMENT.md` §4 explains the current state.
 - 0.2: `typecheck` now runs `next typegen` first. `LayoutProps` is a global type that Next generates into `.next/types`, so `tsc` failed on a clean checkout (first CI run) while passing locally where `.next` existed.
 - 0.2: `.gitattributes` (`eol=lf`) added so `prettier --check` is identical on Windows and Linux runners.
 - 0.1: the `wasm` script for `apps/web` was deferred to 0.3 and is added there.
@@ -58,7 +61,19 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - **Delete the spike in Phase 2** (when the real hub lands): `crates/server/src/spike.rs`, `crates/server/src/bin/spike_relay.rs`, `crates/server/tests/spike_relay.rs`, `apps/web/src/app/spike/`, `e2e/tests/spike.spec.ts`, the relay `webServer` in `e2e/playwright.config.ts`, and the `SpikeDoc`/`WasmDoc` API in `sync-crdt` once the block schema replaces it. Keep `textDiff`, the parity fixture approach and the size-limit pattern.
 - The garbage-input property test takes about 50 s because every caught panic prints a message. Acceptable for now; revisit if CI time matters.
 - Docker is not installed on the dev machine, so `infrastructure/docker-compose.yml` is unverified. Run `docker compose -f infrastructure/docker-compose.yml config` and `up -d mongo` once available. Needed before Phase 1 integration tests.
-- Docs say Node 22; the dev machine has Node 24. `engines` allows `>=22`; CI (0.2) should use 22.
+
+## Phase 0 review
+
+`test-writer` added 31 tests and found no bugs. `code-reviewer` returned "changes required" (no blockers). Dispositions:
+
+- **Fixed:** weak assertions in `convergence.rs` replaced by real expectations; the oversized-client-id test is debug-only (release builds compile the assert out); `encode_fixture` uses `u32::try_from`; the e2e spec waits for the relay's first frame (`data-synced`) instead of racing it; the spike page reports Wasm-load and apply errors instead of a silent empty editor, nulls its socket handlers on cleanup and no longer touches a freed document; `@types/node` is 22; CI runs `push` only on `main` (PRs ran twice) and pins `wasm-pack@0.15.1`; README quick start no longer implies `cargo run -p server` serves anything; missing task-log rows added.
+- **M3 (panic while applying a hostile update): confirmed and fixed.** The reviewer could not verify it; a mutation property test did (see the second bullet of the Yrs finding above). Debug runs missed it at first by chance, release found it at once. A deterministic regression test and the saved proptest seed keep it fixed.
+- **Accepted as spike-only, required for the Phase 2 hub** (the relay is deleted in Phase 2; do not copy its shortcuts):
+  - **M1** Every `send` needs a timeout and the connection needs an idle deadline: a peer that stops reading blocks its task inside `send`, so it can neither reach the lag check nor free the broadcast backlog (up to 256 messages of 1 MiB). Added to `docs/ARCHITECTURE.md` section 4.
+  - **M2** The 1 MiB limit applies to client update frames, not to full-state sync. A document whose state exceeds 1 MiB cannot be loaded by a late joiner here. The hub needs chunked state sync or a separate limit, and a per-room size cap. Added to `docs/API.md` (Limits).
+  - **m5** The relay document never compacts and has no size cap. **m6** Decode and apply of up to 1 MiB run under a blocking `std::sync::Mutex` on a Tokio worker; use a per-room lock and `spawn_blocking` for large updates.
+- **Not changed:** floating action tags (`@v7`, `@v2`, `@stable`) are acceptable for this project (read-only token, no secrets, no `pull_request_target`). The reviewer's remaining risk, CI turning red from a new stable toolchain, is mitigated by `rust-toolchain.toml` pinning only the channel; pin an exact version if that bites.
+- **Not covered:** coverage gates (`cargo llvm-cov` is not installed locally and CI does not run it yet), the Wasm no-`catch_unwind` path, and rate limits (the relay has none).
 
 ## Measurements
 

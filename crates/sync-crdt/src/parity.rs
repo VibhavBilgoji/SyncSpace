@@ -9,14 +9,15 @@ use crate::{CrdtError, SpikeDoc};
 /// The replica that reads a fixture never writes, so its client id is never used for edits.
 const READER_CLIENT_ID: u64 = 1;
 
-/// Packs updates into the fixture format.
-pub fn encode_fixture(updates: &[Vec<u8>]) -> Vec<u8> {
+/// Packs updates into the fixture format. Fails if one update does not fit a `u32` length.
+pub fn encode_fixture(updates: &[Vec<u8>]) -> Result<Vec<u8>, CrdtError> {
     let mut out = Vec::new();
     for update in updates {
-        out.extend_from_slice(&(update.len() as u32).to_le_bytes());
+        let len = u32::try_from(update.len()).map_err(|_| CrdtError::TooLarge(update.len()))?;
+        out.extend_from_slice(&len.to_le_bytes());
         out.extend_from_slice(update);
     }
-    out
+    Ok(out)
 }
 
 /// Replays a fixture into a fresh document.

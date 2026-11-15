@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use yrs::block::ClientID;
 use yrs::updates::decoder::Decode;
+use yrs::updates::encoder::Encode;
 use yrs::{
     Doc, GetString, OffsetKind, Options, ReadTxn, StateVector, Text, TextRef, Transact, Update,
 };
@@ -120,21 +121,37 @@ impl SpikeDoc {
     }
 }
 
-/// Decodes a v1 update without ever panicking on hostile bytes.
+/// Decodes a v1 update without ever panicking on hostile bytes, and only returns updates
+/// that the document can safely keep.
 ///
-/// Yrs 0.28.1 has a `debug_assert!` that a decoded client id fits in 53 bits, so garbage
-/// input panics in debug builds. Decoding runs before the document is touched, so catching
-/// the panic leaves the document unchanged. (`catch_unwind` cannot work on Wasm, where
-/// panics abort; there the updates were already validated by the server.)
+/// Two Yrs 0.28.1 behaviours make plain decoding unsafe on untrusted input:
+///
+/// - A `debug_assert!` that a decoded client id fits in 53 bits makes garbage panic in debug
+///   builds. Decoding runs before the document is touched, so catching the panic leaves the
+///   document unchanged.
+/// - A mutated update can decode and apply fine but leave a block in the document's pending
+///   queue that cannot be re-encoded, and the next `encode_state_as_update` then panics
+///   inside Yrs (`merge_pending_v1` unwraps). A property test found this with a single
+///   flipped byte. Requiring the update to survive an encode and decode round trip first
+///   rejects those updates.
+///
+/// `catch_unwind` cannot work on Wasm, where panics abort; there updates were already
+/// validated by the server.
 fn decode_update(bytes: &[u8]) -> Result<Update, CrdtError> {
+    fn decode_and_round_trip(bytes: &[u8]) -> Result<Update, yrs::encoding::read::Error> {
+        let update = Update::decode_v1(bytes)?;
+        Update::decode_v1(&update.encode_v1())?;
+        Ok(update)
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     {
-        std::panic::catch_unwind(|| Update::decode_v1(bytes))
+        std::panic::catch_unwind(|| decode_and_round_trip(bytes))
             .map_err(|_| CrdtError::Decode)?
             .map_err(|_| CrdtError::Decode)
     }
     #[cfg(target_arch = "wasm32")]
     {
-        Update::decode_v1(bytes).map_err(|_| CrdtError::Decode)
+        decode_and_round_trip(bytes).map_err(|_| CrdtError::Decode)
     }
 }
