@@ -1,6 +1,9 @@
 services:
   mongo:
-    image: mongo:7
+    # The MongoDB major version that Atlas free clusters run. Keep it identical in the CI
+    # service container (.github/workflows/ci.yml), docs/DEPLOYMENT.md and the version guard in
+    # crates/server/tests/db_indexes.rs; change all of them together.
+    image: mongo:8.0
     ports:
       - "27017:27017"
     volumes:

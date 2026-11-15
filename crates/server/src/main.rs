@@ -1,5 +1,67 @@
-//! SyncSpace API server. Axum, MongoDB and the WebSocket hub arrive in later tasks.
+//! SyncSpace API server.
+//!
+//! Start-up order: read the configuration, start logging, connect to MongoDB, create the
+//! indexes, listen. Any failure before listening ends the process with a message and a
+//! non-zero exit code, so a bad deploy shows up at once instead of at the first request:
+//! exit code 2 for configuration problems, 1 for everything else.
 
-fn main() {
-    println!("syncspace server: not implemented yet (see docs/ROADMAP.md)");
+use std::process::ExitCode;
+
+use server::app::{self, AppState};
+use server::config::Config;
+use server::{db, telemetry};
+use tokio::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    // A local `.env` is a convenience for development; in production the real environment is
+    // used. It is fine for the file to be missing.
+    let _ = dotenvy::dotenv();
+
+    let config = match Config::from_env() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("The server cannot start, the configuration has problems:\n{error}");
+            return ExitCode::from(2);
+        }
+    };
+
+    telemetry::init();
+
+    match run(config).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            tracing::error!(%error, "the server stopped with an error");
+            eprintln!("The server stopped with an error: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    // Never log secrets: only these fields are written.
+    tracing::info!(
+        port = config.port,
+        database = %config.mongodb_db,
+        origins = ?config.allowed_origins,
+        cookie_secure = config.cookie_secure,
+        "starting"
+    );
+
+    let database = db::connect(&config).await?;
+    db::ping(&database).await?;
+    db::ensure_indexes(&database).await?;
+    tracing::info!("connected to MongoDB, indexes are in place");
+
+    let port = config.port;
+    let state = AppState {
+        db: database,
+        config: std::sync::Arc::new(config),
+    };
+    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+    tracing::info!(address = %listener.local_addr()?, "listening");
+
+    app::serve(listener, app::router(state), app::shutdown_signal()).await?;
+    tracing::info!("shut down cleanly");
+    Ok(())
 }

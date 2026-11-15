@@ -42,9 +42,9 @@ syncspace/
 
 | Task | Command |
 |---|---|
-| Start MongoDB locally | `docker compose -f infrastructure/docker-compose.yml up -d mongo` |
-| Run the server | `cargo run -p server` |
-| Rust tests | `cargo test --workspace` |
+| Start MongoDB locally (version 8.0, the one Atlas free clusters run) | `docker compose -f infrastructure/docker-compose.yml up -d mongo`, or a native MongoDB 8.0 on `localhost:27017` |
+| Run the server | `cargo run -p server` (reads `.env`; refuses to start on bad configuration or an unreachable MongoDB; `GET /healthz`) |
+| Rust tests | `cargo test --workspace` (the server tests need MongoDB 8.0 at `MONGODB_URI`, default `mongodb://localhost:27017`) |
 | Rust lint | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` |
 | Build the Wasm package | `pnpm --dir apps/web wasm` (runs wasm-pack for `crates/sync-crdt`, outputs to `apps/web/src/wasm/pkg`). Run it before web lint, typecheck, test, build and e2e, which import the package |
 | Wasm tests (includes the parity test) | `wasm-pack test --node crates/sync-crdt` |

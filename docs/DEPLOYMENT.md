@@ -32,6 +32,8 @@ REST goes through the Vercel rewrite so the login cookie is first-party. WebSock
 6. The server creates indexes at start-up. Check them in Atlas under Collections > Indexes after the first deploy.
 7. Optional: create a second free project and cluster for staging, or use a separate database name (`syncspace_staging`) in the same cluster.
 
+**MongoDB version: 8.0 everywhere.** Atlas documents that free clusters run MongoDB 8.0 ("Atlas Free Cluster Limits"), that you cannot upgrade a free cluster yourself, and that Atlas moves free clusters to the newest version only after several patch releases of it. So local development, the CI service container (`mongo:8.0`) and `infrastructure/docker-compose.yml` (`mongo:8.0`) all use 8.0, and `mongodb_major_version_matches_production` in `crates/server/tests/db_indexes.rs` fails when a test run uses another major version. The Rust driver we pin (`mongodb` 3.10) is documented as fully compatible with 7.0, 8.0 and 9.0, so the driver is not what limits the choice. **When Atlas moves your cluster to a newer major version, bump all of these in one change**: `EXPECTED_MONGODB_MAJOR` in `crates/server/tests/common/mod.rs`, the CI image, the compose image, the local install, this paragraph and the version record in `docs/PROGRESS.md`.
+
 ## 4. CI/CD with GitHub Actions
 
 Three workflows in `.github/workflows/`, plus `nightly-proptest.yml` (a scheduled, non-blocking run of the property tests that opens an issue on failure; see `docs/TESTING.md` section 4).
@@ -46,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mongo:
-        image: mongo:7
+        image: mongo:8.0
         ports: ["27017:27017"]
     env:
       MONGODB_URI: mongodb://localhost:27017
@@ -81,7 +83,7 @@ jobs:
     needs: [rust, web]
     runs-on: ubuntu-latest
     services:
-      mongo: { image: "mongo:7", ports: ["27017:27017"] }
+      mongo: { image: "mongo:8.0", ports: ["27017:27017"] }
     steps:
       - uses: actions/checkout@v4
       # build server and web, start both in the background, wait for /healthz, then:
@@ -90,7 +92,7 @@ jobs:
 ```
 Pin action versions to the latest major at implementation time.
 
-**Current state (tasks 0.2 and 0.3).** Actions are pinned to `actions/checkout@v7`, `actions/setup-node@v7`, `pnpm/action-setup@v6`, `Swatinem/rust-cache@v2` and `actions/upload-artifact@v7`. There is no root `package.json`, so `pnpm/action-setup` is given `package_json_file: apps/web/package.json` and takes the pnpm version from `packageManager`. `push` runs only on `main` and `pull_request` covers every PR, so a PR is not tested twice. wasm-pack (`0.15.1`) and the Rust toolchain (`1.100.0`, also set in `rust-toolchain.toml`) are pinned; bump them together on purpose. The workflow sets `permissions: contents: read`, cancels superseded runs per ref and has a timeout on every job. Running today: fmt, clippy, `cargo test` (failing tests are annotated on the run), the hostile-input tests of `sync-crdt` again in release mode, `wasm-pack test --node` (the Wasm half of the parity test), web lint, typecheck and test after `pnpm --dir apps/web wasm`, e2e typecheck and the Playwright tests. wasm-pack comes from `taiki-e/install-action@v2`. The `web` and `e2e` jobs install the Rust toolchain with the wasm target because the app imports the generated package. The `e2e` job starts the throwaway spike relay and `next dev` through the Playwright `webServer` list. Left as `# TODO` lines in the file until their task lands: `cargo llvm-cov` thresholds, web `--coverage`, the generated-types diff, and the MongoDB service with the API start-up for `e2e` (Phase 1).
+**Current state (tasks 0.2 and 0.3).** Actions are pinned to `actions/checkout@v7`, `actions/setup-node@v7`, `pnpm/action-setup@v6`, `Swatinem/rust-cache@v2` and `actions/upload-artifact@v7`. There is no root `package.json`, so `pnpm/action-setup` is given `package_json_file: apps/web/package.json` and takes the pnpm version from `packageManager`. `push` runs only on `main` and `pull_request` covers every PR, so a PR is not tested twice. wasm-pack (`0.15.1`) and the Rust toolchain (`1.100.0`, also set in `rust-toolchain.toml`) are pinned; bump them together on purpose. The workflow sets `permissions: contents: read`, cancels superseded runs per ref and has a timeout on every job. Running today: fmt, clippy, `cargo test` (failing tests are annotated on the run), the hostile-input tests of `sync-crdt` again in release mode, `wasm-pack test --node`, and the server integration tests against a `mongo:8.0` service container (the Wasm half of the parity test), web lint, typecheck and test after `pnpm --dir apps/web wasm`, e2e typecheck and the Playwright tests. wasm-pack comes from `taiki-e/install-action@v2`. The `web` and `e2e` jobs install the Rust toolchain with the wasm target because the app imports the generated package. The `e2e` job starts the throwaway spike relay and `next dev` through the Playwright `webServer` list. Left as `# TODO` lines in the file until their task lands: `cargo llvm-cov` thresholds, web `--coverage`, the generated-types diff, and the MongoDB service with the API start-up for `e2e` (Phase 1).
 
 `.gitattributes` forces LF line endings so `prettier --check` gives the same result on Windows and on the runner.
 
@@ -211,13 +213,27 @@ ENTRYPOINT ["/server"]
 
 ## 10. Local development
 
+You need MongoDB **8.0** on `localhost:27017` (see the version note in section 3), either way:
+
+- **Docker:** `docker compose -f infrastructure/docker-compose.yml up -d mongo`.
+- **Native (Windows):** install MongoDB Community Server 8.0 (`winget install MongoDB.Server --version 8.0.x`, or the MSI). It runs as the `MongoDB` service without authentication. Check with `Get-Service MongoDB` and `mongod --version`.
+
 ```bash
-cp .env.example .env              # fill in local values; COOKIE_SECURE=false
-docker compose -f infrastructure/docker-compose.yml up -d mongo
-cargo run -p server               # http://localhost:8080
+cp .env.example .env              # then fill JWT_SECRET and TICKET_SECRET (below); keep COOKIE_SECURE=false
+cargo run -p server               # http://localhost:8080, GET /healthz
 pnpm --dir apps/web wasm && pnpm --dir apps/web dev   # http://localhost:3000, API_ORIGIN=http://localhost:8080
 ```
 
+Generate the two secrets (they must be different, base64, at least 32 bytes decoded):
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # run it twice
+# or: openssl rand -base64 32
+```
+
+The server reads `.env` from the current directory (or a parent) and then the real environment, and **refuses to start** when something is wrong: it prints every problem at once and exits with code 2 for configuration, or 1 when MongoDB cannot be reached or the indexes cannot be created.
+
+**Tests.** `cargo test --workspace` runs the server integration tests against the MongoDB named by `MONGODB_URI` (default `mongodb://localhost:27017`). Each test uses its own database `syncspace_test_<uuid>` and drops it afterwards, so nothing is left behind and tests run in parallel. Without a reachable MongoDB the Mongo-backed tests fail with instructions; the others do not need one. The `testcontainers` approach from `docs/TESTING.md` is not used yet (see `docs/PROGRESS.md`, open questions).
 ## 11. Troubleshooting
 
 | Symptom | Likely cause and fix |
@@ -226,6 +242,11 @@ pnpm --dir apps/web wasm && pnpm --dir apps/web dev   # http://localhost:3000, A
 | Login works but every request then returns 401 | Cookie set on the API domain instead of the web domain: call REST through `/api/*` on the web domain, not the Render URL |
 | WebSocket closes immediately with 4001 | Ticket expired or reused; get a fresh ticket per connection attempt |
 | WebSocket closes with 1008 right after connecting | `Origin` not in `ALLOWED_ORIGINS` (include the exact Vercel URL, no trailing slash) |
+| The server exits at once with "the configuration has problems" (exit code 2) | A required variable is missing or invalid; the message lists every problem. Secrets must be base64 of at least 32 bytes and `JWT_SECRET` must differ from `TICKET_SECRET` |
+| The server exits with "stopped with an error" (exit code 1) | MongoDB is not reachable (not running, wrong URI, Atlas network access) or index creation failed; the log has the cause |
+| `/healthz` answers 503 `{"status":"degraded","mongo":"error"}` | The server is up but cannot reach MongoDB; the server log has the driver error |
+| Server tests fail with "These tests need a running MongoDB" | Start MongoDB 8.0 (section 10) or set `MONGODB_URI` |
+| `mongodb_major_version_matches_production` fails | The tests ran on another MongoDB major version than Atlas free clusters run; install 8.0 (or bump everything together, see section 3) |
 | `MongoServerSelectionError` in Render logs | Atlas network access missing `0.0.0.0/0`, wrong password, or the cluster is paused |
 | Wasm import fails on Vercel | The `pkg` folder was not built before `vercel build`; deploy through `deploy-web.yml` |
 | Atlas storage warning | Lower `AUTO_VERSION_RETENTION`, or delete demo documents (versions are deleted with them) |

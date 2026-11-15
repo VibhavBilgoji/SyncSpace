@@ -335,7 +335,7 @@ async fn relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load() {
     replica.apply_update(&state).unwrap();
     let held = replica.text();
     assert!(
-        held.chars().all(|c| c == 'x') && held.len() % 1000 == 0,
+        held.chars().all(|c| c == 'x') && held.len().is_multiple_of(1000),
         "the relay must hold whole accepted updates only"
     );
     let accepted = held.len() / 1000;

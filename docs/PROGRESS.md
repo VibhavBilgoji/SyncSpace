@@ -7,7 +7,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | Phase | Status | Tag |
 |---|---|---|
 | 0 Bootstrap and spike | complete | `phase-0` on `e2bb9b1` |
-| 1 Accounts, workspaces, design system | not started | |
+| 1 Accounts, workspaces, design system | in progress (1.1 implemented, CI pending) | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
 | 4 Version history | not started | |
@@ -24,6 +24,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2026-11-15 | 0.2 CI workflow | done (PR #1, green) | 0 (config only) | First run failed at `typecheck` (generated `LayoutProps` missing on a clean checkout); fixed with `next typegen` |
 | 2026-11-15 | 0.3 Yrs native + Wasm spike | done (PR #2, green) | 9 convergence + 2 parity + 6 relay, 5 Wasm, 16 web, 2 e2e specs x 2 browsers; replaced 2 placeholders | **Yrs works in Wasm: parity passes, byte-identical.** See "Spike 0.3 findings" |
 | 2026-11-15 | Phase 0 review | done (PR #3, green; tagged `phase-0` on `e2bb9b1`) | +31 tests from `test-writer`; +14 from the review (6 in sync-crdt: mutation property test, 3 regressions, fixture drift guard, state-unchanged tests; 3 relay integration; 5 relay unit) | Final counts: native 22 convergence (20 in release, two tests are debug-only) + 9 parity + 14 relay + 5 relay unit (+2 ignored fixture generators), 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
+| 2026-11-16 | 1.1 Server skeleton | implemented, **CI run pending** | 59 new: 22 unit (config 12, error 6, db 4), 24 API integration, 9 index integration, 4 process-level; all pass locally on MongoDB 8.0.23 | Config, tracing, `/healthz`, MongoDB connection and indexes, error format, 256 KiB body limit, CORS, panic net, graceful shutdown. Each protection was disabled in turn and a test failed every time. CI now has a `mongo:8.0` service. See "MongoDB version alignment" |
 
 ## Decisions made during implementation
 
@@ -60,6 +61,15 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - 0.2: `.gitattributes` (`eol=lf`) added so `prettier --check` is identical on Windows and Linux runners.
 - 0.1: the `wasm` script for `apps/web` was deferred to 0.3 and is added there.
 
+- 1.1: `GET /healthz` is served at the server root, not under `/api/v1` (`API.md` lists it without the prefix; Render's health check and the deploy checklist call `/healthz`). It answers 200 `{"status":"ok","mongo":"ok"}`, or 503 `{"status":"degraded","mongo":"error"}` when a MongoDB ping fails or takes over 2 s; the cause goes to the log, never to the client. `API.md` now documents both.
+- 1.1: every response the server produces uses `{"error":{"code","message","details"?}}`, including unknown paths (404), wrong methods (405), oversized bodies (413) and caught panics (500). Three codes were added to the `API.md` table: `METHOD_NOT_ALLOWED`, `PAYLOAD_TOO_LARGE`, `INTERNAL`. An internal error's cause is logged and never returned. Malformed JSON and a wrong `Content-Type` are 400; valid JSON of the wrong shape is 422 with the reason in `details.body`.
+- 1.1: configuration fails fast and reports every problem at once. It requires `MONGODB_URI`, `JWT_SECRET`, `TICKET_SECRET` and `ALLOWED_ORIGINS` already (task 1.2 uses the secrets), so a bad deploy fails at start. Secrets are base64 of at least 32 bytes and must differ; origins are `scheme://host[:port]` with no path and no wildcard; `COOKIE_SECURE` defaults to true. `Secret<T>` prints as `<redacted>`. Exit code 2 means bad configuration, 1 means start-up failed (MongoDB unreachable, indexes failed).
+- 1.1: middleware order, outermost first: request logging, CORS, 256 KiB body limit, panic catching. CORS is outside so 404, 413 and 500 carry its headers; panic catching is innermost so a panic becomes a 500 in the error format. CORS grants `Allow-Origin` **and** `Allow-Credentials` to the configured origins only (`AllowCredentials::predicate`); a foreign origin gets no CORS header at all.
+- 1.1: request logs hold method, path, status and latency, and never the query string (WebSocket tickets travel there), headers, cookies or bodies. Output goes to stdout; `RUST_LOG` is honoured. A grep of a real run's log for the ticket, the cookie, both signing keys and the MongoDB URI found none of them.
+- 1.1: the driver connects lazily with a 5 s server-selection timeout (unless the URI sets one); start-up pings and exits non-zero when MongoDB is unreachable. All ten indexes of `DATA_MODEL.md` section 4 are created at start from one table (`db::INDEXES`); a test parses the document and compares it with that table, so the two cannot drift apart.
+- 1.1: the workspace `rust-version` is now `1.94.1`, the minimum the driver's release notes give for `mongodb` 3.10 (it was a stale `1.85`). Side effect: clippy lints that depend on the declared minimum version are active, for example `manual_is_multiple_of`.
+- 1.1: server integration tests read `MONGODB_URI` (default `mongodb://localhost:27017`), give each test a database `syncspace_test_<uuid>` and drop it with a guard that also runs when a test fails (after many runs and killed processes no test database was left behind). Tests that do not need a database build the app against an unreachable MongoDB.
+
 ## Open questions
 
 (Conflicts between docs, unclear requirements, things the team must decide.)
@@ -67,6 +77,38 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - **Delete the spike in Phase 2** (when the real hub lands): `crates/server/src/spike.rs`, `crates/server/src/bin/spike_relay.rs`, `crates/server/tests/spike_relay.rs`, `apps/web/src/app/spike/`, `e2e/tests/spike.spec.ts`, the relay `webServer` in `e2e/playwright.config.ts`, and the `SpikeDoc`/`WasmDoc` API in `sync-crdt` once the block schema replaces it. Keep `textDiff`, the parity fixture approach and the size-limit pattern.
 - The garbage-input property test takes about 50 s because every caught panic prints a message. Acceptable for now; revisit if CI time matters.
 - Docker is not installed on the dev machine, so `infrastructure/docker-compose.yml` is unverified. Run `docker compose -f infrastructure/docker-compose.yml config` and `up -d mongo` once available. Needed before Phase 1 integration tests.
+
+- **`testcontainers` is deferred.** `docs/TESTING.md` says integration tests use testcontainers locally. It cannot be verified without Docker (not installed here), so the tests use `MONGODB_URI`: a native MongoDB 8.0 locally, the `mongo:8.0` service container in CI, or the compose service. Revisit when Docker is available.
+- **Atlas can change the MongoDB major version under us.** Atlas upgrades free clusters to the newest major version after several patch releases of it, and you cannot upgrade one yourself. The version guard test only sees local and CI. Check the cluster's version in Atlas at the first deploy and whenever Atlas announces an upgrade, and follow the bump procedure below if it moved.
+- **Coverage gates are still unmeasured.** `cargo llvm-cov` is not installed and CI does not run it yet; the server crate now has enough code for the 75% gate to mean something, so decide when to turn it on (after 1.3 is the natural point).
+- **One unexplained wasm test failure.** Once, `wasm-pack test --node` printed `8 passed` and then `error: test failed, to rerun pass --test wasm`, right after about 100 s of CPU-heavy release tests. It passed 13 times in a row afterwards, including 12 consecutive runs with exit code 0, so it is not reproduced. Watch CI for it; if it recurs, capture the full runner output.
+- **Windows Firewall may ask about `server.exe`.** The process-level tests start the real binary, which binds `0.0.0.0:$PORT` (Render needs that). Allowing or cancelling the prompt does not matter for the tests, which connect over loopback.
+- The empty folder `C:\Program Files\MongoDB\Server\9.0` is left over from the removed 9.0 install. It is harmless; the running service is 8.0.23.
+
+## MongoDB version alignment (task 1.1)
+
+Checked on 2026-11-16, before changing any version:
+
+| Question | Finding | Source |
+|---|---|---|
+| What do Atlas free (M0) clusters run? | **MongoDB 8.0.** "Atlas uses MongoDB 8.0 for Free clusters." You cannot upgrade a free cluster yourself; Atlas upgrades them to the newest version after several patch releases of it. | Atlas docs, "Atlas Free Cluster Limits" |
+| Does the pinned Rust driver support it? | `mongodb` **3.10.1**. The compatibility table lists driver 3.9 to 3.10 as fully compatible (all features) with MongoDB **9.0, 8.0 and 7.0**; 3.6 to 3.8 are only partly compatible with 9.0. The driver is therefore not what limits the choice. | MongoDB docs, "Client Library Compatibility Tables" (Rust) and the Rust driver release notes |
+| Does the `mongo:9` image exist? | Yes. `mongo:9.0`, `mongo:9`, `mongo:8.0`, `mongo:8`, `mongo:7.0` and `latest` all exist on Docker Hub (linux/amd64, linux/arm64, windows/amd64), last updated 2026-11-12. | Docker Hub API, `library/mongo` tags |
+| What was installed locally? | MongoDB 9.0.4 first. It was removed on 2026-11-16 and 8.0.23 installed instead (Windows service `MongoDB`, `localhost:27017`, no auth), verified by service state, listening port and `mongod --version`. | local checks |
+
+**Decision: MongoDB 8.0 everywhere**, so no test passes on a version production does not run. Chosen by the project owner after the Atlas finding, as they had said they would prefer 8.x locally to testing on a version production does not run.
+
+| Where | Now |
+|---|---|
+| Local development | MongoDB Community Server 8.0.23 |
+| CI | `mongo:8.0` service container (`.github/workflows/ci.yml`) |
+| `infrastructure/docker-compose.yml` | `mongo:8.0` |
+| Docs | `DEPLOYMENT.md` sections 3, 4, 10, 11; `TESTING.md`; `README.md`; `CLAUDE.md`; `ROADMAP.md` row 0.1; `.env.example` |
+| Enforced by | `mongodb_major_version_matches_production` in `crates/server/tests/db_indexes.rs` (constant `EXPECTED_MONGODB_MAJOR` in `tests/common/mod.rs`) fails when tests run on another major version |
+
+**Bump procedure** (when Atlas moves the cluster to a newer major version): change `EXPECTED_MONGODB_MAJOR`, the CI image, the compose image, the local install, the paragraph in `DEPLOYMENT.md` section 3 and this section, in one change, and run the full tests on the new version first. The driver already supports 9.0 fully, so no driver change is expected.
+
+Not verified: the Rust driver's own minimum Rust version is inconsistent between sources (the 3.10 release notes say 1.94.1, the crates.io metadata for 3.10.1 says 1.88); I used the higher figure for `rust-version`. The toolchain is pinned to 1.100.0, so builds are unaffected either way.
 
 ## Phase 0 review
 

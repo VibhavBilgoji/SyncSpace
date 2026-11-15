@@ -9,12 +9,12 @@ Tests are written in the same change as the code they cover. Each roadmap task l
 | CRDT logic (native) | `cargo test`, `proptest` | `crates/sync-crdt/src/**` (unit), `crates/sync-crdt/tests/` |
 | CRDT logic (Wasm) | `wasm-bindgen-test` under Node | `crates/sync-crdt/tests/wasm.rs` |
 | Server unit | `cargo test` | next to the code (`#[cfg(test)]`) |
-| Server integration | `cargo test` + a real MongoDB (`testcontainers` locally, a service container in CI) + `reqwest` and `tokio-tungstenite` clients | `crates/server/tests/` |
+| Server integration | `cargo test` + a real MongoDB **8.0** at `MONGODB_URI` (default `mongodb://localhost:27017`: a native install, the compose service, or the CI service container; `testcontainers` is deferred, see `docs/PROGRESS.md`) + `reqwest` and `tokio-tungstenite` clients | `crates/server/tests/` |
 | Web unit and components | Vitest + Testing Library + `jsdom` | `apps/web/src/**/*.test.ts(x)` |
 | End to end | Playwright (Chromium, Firefox), two browser contexts for collaboration | `e2e/` |
 | Load | `tools/loadtest` (Rust, N simulated editors over WebSocket) | manual and nightly |
 
-Each integration test creates its own database (`syncspace_test_<uuid>`) and drops it at the end, so tests can run in parallel.
+Each integration test creates its own database (`syncspace_test_<uuid>`) and drops it at the end (also when the test fails), so tests can run in parallel. The MongoDB major version is pinned: `mongodb_major_version_matches_production` fails when the tests run on a version other than the one Atlas free clusters run (`docs/DEPLOYMENT.md` section 3). Tests that do not need a database build the app against an unreachable MongoDB instead.
 
 ## 2. Required tests
 
