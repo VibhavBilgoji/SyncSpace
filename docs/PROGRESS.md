@@ -6,7 +6,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 
 | Phase | Status | Tag |
 |---|---|---|
-| 0 Bootstrap and spike | in progress (0.1 done, 0.2 CI run pending) | |
+| 0 Bootstrap and spike | in progress (0.1, 0.2 done) | |
 | 1 Accounts, workspaces, design system | not started | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
