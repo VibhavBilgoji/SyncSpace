@@ -23,7 +23,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2026-11-15 | 0.1 Monorepo bootstrap | done | 4 (2 Rust, 1 Vitest, 1 Playwright x2 browsers) | `cargo test`, web lint/typecheck/test/build and e2e smoke all green. Docker compose file not run (Docker not installed) |
 | 2026-11-15 | 0.2 CI workflow | done (PR #1, green) | 0 (config only) | First run failed at `typecheck` (generated `LayoutProps` missing on a clean checkout); fixed with `next typegen` |
 | 2026-11-15 | 0.3 Yrs native + Wasm spike | done (PR #2, green) | 9 convergence + 2 parity + 6 relay, 5 Wasm, 16 web, 2 e2e specs x 2 browsers; replaced 2 placeholders | **Yrs works in Wasm: parity passes, byte-identical.** See "Spike 0.3 findings" |
-| 2026-11-15 | Phase 0 review | fixes in PR | +31 tests from `test-writer`, +2 from review (mutation property test, regression) | Final counts: native 18 convergence + 9 parity (+1 ignored generator) + 11 relay, 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
+| 2026-11-15 | Phase 0 review | fixes in PR | +31 tests from `test-writer`, +2 from review (mutation property test, regression), +7 for the relay protections (2 integration, 5 unit) | Final counts: native 18 convergence + 9 parity (+1 ignored generator) + 13 relay + 5 relay unit, 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
 
 ## Decisions made during implementation
 
@@ -64,15 +64,18 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 
 ## Phase 0 review
 
-`test-writer` added 31 tests and found no bugs. `code-reviewer` returned "changes required" (no blockers). Dispositions:
+`test-writer` added 31 tests and found no bugs. `code-reviewer` returned "changes required" (no blockers). Every finding is fixed; dispositions:
 
 - **Fixed:** weak assertions in `convergence.rs` replaced by real expectations; the oversized-client-id test is debug-only (release builds compile the assert out); `encode_fixture` uses `u32::try_from`; the e2e spec waits for the relay's first frame (`data-synced`) instead of racing it; the spike page reports Wasm-load and apply errors instead of a silent empty editor, nulls its socket handlers on cleanup and no longer touches a freed document; `@types/node` is 22; CI runs `push` only on `main` (PRs ran twice) and pins `wasm-pack@0.15.1`; README quick start no longer implies `cargo run -p server` serves anything; missing task-log rows added.
 - **M3 (panic while applying a hostile update): confirmed and fixed.** The reviewer could not verify it; a mutation property test did (see the second bullet of the Yrs finding above). Debug runs missed it at first by chance, release found it at once. A deterministic regression test and the saved proptest seed keep it fixed.
-- **Accepted as spike-only, required for the Phase 2 hub** (the relay is deleted in Phase 2; do not copy its shortcuts):
-  - **M1** Every `send` needs a timeout and the connection needs an idle deadline: a peer that stops reading blocks its task inside `send`, so it can neither reach the lag check nor free the broadcast backlog (up to 256 messages of 1 MiB). Added to `docs/ARCHITECTURE.md` section 4.
-  - **M2** The 1 MiB limit applies to client update frames, not to full-state sync. A document whose state exceeds 1 MiB cannot be loaded by a late joiner here. The hub needs chunked state sync or a separate limit, and a per-room size cap. Added to `docs/API.md` (Limits).
-  - **m5** The relay document never compacts and has no size cap. **m6** Decode and apply of up to 1 MiB run under a blocking `std::sync::Mutex` on a Tokio worker; use a per-room lock and `spawn_blocking` for large updates.
-- **Not changed:** floating action tags (`@v7`, `@v2`, `@stable`) are acceptable for this project (read-only token, no secrets, no `pull_request_target`). The reviewer's remaining risk, CI turning red from a new stable toolchain, is mitigated by `rust-toolchain.toml` pinning only the channel; pin an exact version if that bites.
+- **M1, M2, m5, m6: fixed in the relay** (`crates/server/src/spike.rs`), each with a test that fails when the protection is removed (checked by disabling each one):
+  - **M1** Every send goes through `send_within` with a timeout (10 s), the relay pings every 20 s and closes a peer that sends nothing, not even a pong, for 60 s. A peer that stops reading used to block its task inside `send`, so it could neither reach the lag check nor free the broadcast backlog. Tests: three unit tests on `send_within` and `close` with a sink that never completes (each with an outer deadline so a missing timeout fails fast instead of hanging), and `relay_drops_a_peer_that_stops_answering_pings_and_keeps_a_live_one`.
+  - **M2** The document has a size cap (768 KiB, below the 1 MiB frame limit) checked before an update is applied, so the full state a late joiner receives always fits the limit the client enforces. An update past the cap closes the connection with 1009. Tests: `relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load` and `apply_refuses_an_update_that_could_pass_the_size_cap`. The spike page also shows an error instead of an empty editor when it cannot apply the state.
+  - **m5** The broadcast backlog is 64 frames instead of 256 (at most 64 MiB pinned by a stuck peer, down from 256 MiB), and the size cap bounds the document. A 1 MiB all-zero frame is still relayed to everyone without changing the document; that is harmless here.
+  - **m6** Updates over 16 KiB are applied with `spawn_blocking` instead of on a Tokio worker.
+  - Two existing tests were adapted, not weakened: the 1 MiB frame-limit test now raises the size cap so it checks the frame limit alone, and the lagging-consumer test sends no-op frames with a long send timeout so it still exercises the lag path (the cap would refuse 36 MB of real text). The size cap has its own test.
+  - The same rules are written into `docs/ARCHITECTURE.md` section 4 and `docs/API.md` (Limits) as requirements for the Phase 2 hub, which must keep them, plus a real answer to state sync past 1 MiB (chunking or a per-room size policy), since the cap is a spike shortcut.
+- **m4: fixed.** The Rust toolchain is pinned to 1.100.0 in `rust-toolchain.toml` and in CI (`toolchain: 1.100.0`), and wasm-pack to 0.15.1, so a new release cannot turn CI red without a code change. Bump them together on purpose. Floating major tags for actions (`@v7`, `@v2`) stay: read-only token, no secrets, no `pull_request_target`.
 - **Not covered:** coverage gates (`cargo llvm-cov` is not installed locally and CI does not run it yet), the Wasm no-`catch_unwind` path, and rate limits (the relay has none).
 
 ## Measurements

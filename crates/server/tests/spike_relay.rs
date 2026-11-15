@@ -5,6 +5,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use server::spike::{SpikeConfig, router_with_config};
 use sync_crdt::SpikeDoc;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
@@ -17,15 +18,19 @@ type Client = WebSocketStream<MaybeTlsStream<TcpStream>>;
 const WAIT: Duration = Duration::from_secs(5);
 const QUIET: Duration = Duration::from_millis(300);
 
-async fn start_relay() -> std::net::SocketAddr {
+async fn start_relay_with(config: SpikeConfig) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, server::spike::router())
+        axum::serve(listener, router_with_config(config))
             .await
             .unwrap();
     });
     addr
+}
+
+async fn start_relay() -> std::net::SocketAddr {
+    start_relay_with(SpikeConfig::default()).await
 }
 
 async fn connect(addr: std::net::SocketAddr) -> Client {
@@ -213,8 +218,13 @@ async fn relay_does_not_apply_an_invalid_update_to_the_shared_document() {
 #[tokio::test]
 async fn relay_accepts_a_frame_of_exactly_the_limit() {
     // 1 MiB is allowed (only larger gets 1009). All zeros decodes as an empty update, so the
-    // relay applies it and the connection stays usable.
-    let addr = start_relay().await;
+    // relay applies it and the connection stays usable. The document size cap is raised so
+    // that this test checks the frame limit alone (the cap has its own test).
+    let addr = start_relay_with(SpikeConfig {
+        max_state_bytes: 8 * 1024 * 1024,
+        ..SpikeConfig::default()
+    })
+    .await;
     let mut ws = connect(addr).await;
     let mut peer = connect(addr).await;
     next_binary(&mut ws).await;
@@ -250,18 +260,22 @@ async fn relay_keeps_the_connection_open_across_ping_frames() {
 
 #[tokio::test]
 async fn relay_disconnects_a_consumer_that_falls_too_far_behind() {
-    let addr = start_relay().await;
+    // A long send timeout keeps this on the lag path; the timeout path has its own tests.
+    let addr = start_relay_with(SpikeConfig {
+        send_timeout: Duration::from_secs(60),
+        ..SpikeConfig::default()
+    })
+    .await;
     let mut slow = connect(addr).await; // never reads after the first frame
     let mut sender = connect(addr).await;
     next_binary(&mut slow).await;
     next_binary(&mut sender).await;
 
-    // Broadcast capacity is 256 and the slow socket's buffers fill, so a few hundred large
-    // updates make the receiver lag.
-    let author = SpikeDoc::new(5).unwrap();
-    let chunk = "x".repeat(60_000);
-    for i in 0..600u32 {
-        let update = author.insert(i * 60_000, &chunk).unwrap();
+    // Broadcast capacity is 64 and the slow socket's buffers fill, so a few hundred large
+    // frames make the receiver lag. All-zero frames are valid empty updates: they are relayed
+    // but do not grow the document, which the size cap would otherwise refuse.
+    for _ in 0..600u32 {
+        let update = vec![0u8; 60_000];
         if sender.send(Message::Binary(update.into())).await.is_err() {
             break;
         }
@@ -280,4 +294,110 @@ async fn relay_disconnects_a_consumer_that_falls_too_far_behind() {
         }
     }
     assert_eq!(closed_with, Some(1008));
+}
+
+/// The state a late joiner receives must fit the frame limit the client enforces, so the relay
+/// refuses updates that would push the document past its cap, and what it already holds stays
+/// loadable.
+#[tokio::test]
+async fn relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load() {
+    const CAP: usize = 4096;
+    let addr = start_relay_with(SpikeConfig {
+        max_state_bytes: CAP,
+        ..SpikeConfig::default()
+    })
+    .await;
+    let mut writer = connect(addr).await;
+    let mut watcher = connect(addr).await;
+    next_binary(&mut writer).await;
+    next_binary(&mut watcher).await;
+
+    let author = SpikeDoc::new(5).unwrap();
+    let chunk = "x".repeat(1000);
+    let mut accepted = 0usize;
+    for _ in 0..10 {
+        let update = author.insert(author.len(), &chunk).unwrap();
+        writer.send(Message::Binary(update.into())).await.unwrap();
+        // The watcher only sees updates the relay accepted.
+        if timeout(Duration::from_millis(500), next_binary(&mut watcher))
+            .await
+            .is_err()
+        {
+            break;
+        }
+        accepted += 1;
+    }
+    assert!(
+        (1..10).contains(&accepted),
+        "the cap should stop the writer part way, accepted {accepted}"
+    );
+    assert_eq!(close_code(&mut writer).await, 1009);
+
+    let mut late = connect(addr).await;
+    let state = next_binary(&mut late).await;
+    assert!(
+        state.len() <= CAP,
+        "state of {} bytes passed the cap",
+        state.len()
+    );
+    let replica = SpikeDoc::new(9).unwrap();
+    replica.apply_update(&state).unwrap();
+    assert_eq!(replica.text(), "x".repeat(accepted * 1000));
+}
+
+/// Reads and discards frames for `duration`, which answers the relay's pings.
+async fn stay_alive(ws: &mut Client, duration: Duration) {
+    let end = tokio::time::Instant::now() + duration;
+    while let Ok(Some(Ok(_))) = tokio::time::timeout_at(end, ws.next()).await {}
+}
+
+/// Whether the relay ends this connection within `limit`: a close frame, an error or EOF.
+async fn connection_ends(ws: &mut Client, limit: Duration) -> bool {
+    let end = tokio::time::Instant::now() + limit;
+    loop {
+        match tokio::time::timeout_at(end, ws.next()).await {
+            Err(_) => return false,
+            Ok(None | Some(Err(_) | Ok(Message::Close(_)))) => return true,
+            Ok(Some(Ok(_))) => {}
+        }
+    }
+}
+
+/// A peer that never answers pings is dropped, while one that does keeps its connection.
+#[tokio::test]
+async fn relay_drops_a_peer_that_stops_answering_pings_and_keeps_a_live_one() {
+    let addr = start_relay_with(SpikeConfig {
+        ping_interval: Duration::from_millis(100),
+        idle_timeout: Duration::from_millis(400),
+        ..SpikeConfig::default()
+    })
+    .await;
+    let mut silent = connect(addr).await; // not polled, so tungstenite never answers pings
+    let mut live = connect(addr).await;
+    let mut author = connect(addr).await;
+    next_binary(&mut silent).await;
+    next_binary(&mut live).await;
+    next_binary(&mut author).await;
+
+    // Reading is what answers the relay's pings, so poll the two live connections past the
+    // idle timeout. Pings are consumed here; the silent peer is left alone.
+    tokio::join!(
+        stay_alive(&mut live, Duration::from_millis(1500)),
+        stay_alive(&mut author, Duration::from_millis(1500)),
+    );
+
+    let update = SpikeDoc::new(5).unwrap().insert(0, "still here").unwrap();
+    author
+        .send(Message::Binary(update.clone().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_binary(&mut live).await, update);
+
+    // The silent peer was dropped for being idle. How the drop looks to it depends on the
+    // platform (a close frame, or a reset that discards unread data), so only require that the
+    // connection ends, and that it ends instead of idling on as before.
+    assert!(
+        connection_ends(&mut silent, Duration::from_secs(3)).await,
+        "the idle peer was never dropped"
+    );
 }

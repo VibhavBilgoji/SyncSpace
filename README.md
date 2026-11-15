@@ -8,7 +8,7 @@ Stack: Rust (Axum, Tokio, Yrs CRDT, compiled natively and to WebAssembly), Mongo
 
 ## Prerequisites
 
-- Rust (rustup). `rust-toolchain.toml` installs the `wasm32-unknown-unknown` target.
+- Rust (rustup). `rust-toolchain.toml` pins the toolchain (1.100.0) and installs the `wasm32-unknown-unknown` target.
 - Node 22 or newer and pnpm
 - Docker (MongoDB 7 for local development and integration tests)
 - `wasm-pack` (`cargo install wasm-pack --locked`), for the browser CRDT package

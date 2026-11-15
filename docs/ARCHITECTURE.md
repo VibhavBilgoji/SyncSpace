@@ -137,7 +137,7 @@ JWT expiry closes sockets with 4001 at the next frame or ping. The client keeps 
 - `version_number` allocation uses `findOneAndUpdate($inc next_version)`.
 - A restore and a snapshot in the same room are serialised through the room.
 - Ticket single-use set is pruned every minute.
-- Every socket send has a timeout (5 to 10 s) and every connection an idle deadline. A peer that stops reading would otherwise block its task inside `send`: the task could not reach the lag check, and the broadcast backlog (messages are kept until the slowest receiver reads them) would never be freed. On timeout, drop the connection without waiting for the peer. (Found in the task 0.3 review.)
+- Every socket send has a timeout (5 to 10 s) and every connection an idle deadline. A peer that stops reading would otherwise block its task inside `send`: the task could not reach the lag check, and the broadcast backlog (messages are kept until the slowest receiver reads them) would never be freed. On timeout, drop the connection without waiting for the peer. (Found in the task 0.3 review; implemented and tested in the spike relay as `send_within` and its ping loop, `crates/server/src/spike.rs`. Keep both when the hub replaces it.)
 - Treat every decoded update as hostile: decode inside `catch_unwind`, reject anything that does not survive an encode and decode round trip, and never let a panic in Yrs reach a task holding a room lock (`docs/PROGRESS.md`, Spike 0.3 findings).
 
 ## 5. Security
