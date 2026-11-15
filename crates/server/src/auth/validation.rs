@@ -132,15 +132,18 @@ mod tests {
 
     #[test]
     fn a_good_registration_is_normalised() {
-        let registration =
-            validate_registration(input("  Ada Lovelace  ", "  Ada@Example.COM ", "p4ssw0rd!"))
-                .unwrap();
+        let registration = validate_registration(input(
+            "  Ada Lovelace  ",
+            "  Ada@Example.COM ",
+            "a long enough passphrase",
+        ))
+        .unwrap();
         assert_eq!(
             registration,
             Registration {
                 name: "Ada Lovelace".into(),
                 email: "ada@example.com".into(),
-                password: "p4ssw0rd!".into(),
+                password: "a long enough passphrase".into(),
             }
         );
     }

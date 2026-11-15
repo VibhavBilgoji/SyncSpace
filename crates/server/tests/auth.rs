@@ -837,7 +837,7 @@ async fn the_log_never_contains_passwords_tokens_hashes_or_personal_data() {
     )
     .await;
 
-    let canary_password = "Canary-Pa55word-xyzzy";
+    let canary_password = "canary passphrase for the log test";
     let registered = register(
         &app,
         "Canary Person",
@@ -847,7 +847,12 @@ async fn the_log_never_contains_passwords_tokens_hashes_or_personal_data() {
     .await;
     let token = token_of(&set_cookie(&registered));
     login(&app, "canary.person@example.com", canary_password).await;
-    login(&app, "canary.person@example.com", "Canary-Wrong-Pa55word").await;
+    login(
+        &app,
+        "canary.person@example.com",
+        "canary wrong passphrase for the log test",
+    )
+    .await;
     with_session(app.client.get(app.url(ME)), &token)
         .send()
         .await
@@ -864,8 +869,8 @@ async fn the_log_never_contains_passwords_tokens_hashes_or_personal_data() {
     }
     // ...and none of the sensitive data came with them.
     for secret in [
-        "Canary-Pa55word",
-        "Canary-Wrong",
+        "canary passphrase for the log test",
+        "canary wrong passphrase",
         "canary.person",
         "Canary Person",
         token.as_str(),
