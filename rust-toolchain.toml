@@ -2,5 +2,5 @@
 # Pinned so a new stable release cannot turn CI red without a code change. Bump on purpose,
 # here and in .github/workflows/ci.yml, together.
 channel = "1.100.0"
-components = ["rustfmt", "clippy"]
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
 targets = ["wasm32-unknown-unknown"]

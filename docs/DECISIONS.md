@@ -43,3 +43,6 @@ Add a new record instead of editing an accepted one. Format: context, decision, 
 
 ## ADR-010: dark theme only
 **Decision.** Ship the dark theme from the Figma tokens. Keep colours in CSS variables so a light theme could be added later.
+
+## ADR-011: server integration tests use `MONGODB_URI`, not testcontainers
+**Decision.** Integration tests run against the MongoDB at `MONGODB_URI` (default `mongodb://localhost:27017`): a native `mongod` 8.0 locally and a `mongo:8.0` service container in CI, each test in a database of its own; no test starts containers itself, so they need no Docker.

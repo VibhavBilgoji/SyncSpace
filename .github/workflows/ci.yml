@@ -20,7 +20,7 @@ env:
 jobs:
   rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     # The server integration tests need a real MongoDB. Same major version as Atlas free
     # clusters (8.0) and as infrastructure/docker-compose.yml; see docs/DEPLOYMENT.md.
     services:
@@ -39,7 +39,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.100.0
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
@@ -60,10 +60,17 @@ jobs:
       - run: cargo test -p sync-crdt --release --test convergence --test parity
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-pack@0.15.1
+          tool: wasm-pack@0.15.1,cargo-llvm-cov@0.9.1
       - run: wasm-pack test --node crates/sync-crdt
-      # TODO(phase 1): cargo llvm-cov -p sync-crdt --fail-under-lines 90
-      # TODO(phase 1): cargo llvm-cov -p server --fail-under-lines 75
+      # Coverage gates (docs/TESTING.md section 3): line coverage of the native build. The
+      # Wasm half of sync-crdt is tested by `wasm-pack test`, which llvm-cov cannot measure.
+      # The property tests run 500 cases here: the percentage does not depend on the case
+      # count, and the full runs are in `cargo test` above and in the nightly workflow. A
+      # threshold that is not met fails the step. The server step needs the mongo service.
+      - run: bash .github/scripts/coverage-gate.sh sync-crdt 90
+        env:
+          PROPTEST_CASES: "500"
+      - run: bash .github/scripts/coverage-gate.sh server 75
 
   web:
     runs-on: ubuntu-latest
