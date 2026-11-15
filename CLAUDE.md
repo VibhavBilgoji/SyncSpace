@@ -34,7 +34,7 @@ syncspace/
 ├── e2e/                          # Playwright end-to-end tests
 ├── tools/loadtest/               # Rust load generator for the edits/s vs writes/s metric
 ├── infrastructure/docker-compose.yml
-├── .github/workflows/            # ci.yml, deploy-api.yml, deploy-web.yml
+├── .github/workflows/            # ci.yml, nightly-proptest.yml, deploy-api.yml, deploy-web.yml
 └── docs/
 ```
 
@@ -75,6 +75,7 @@ Keep this table correct. If you add or rename a script, update it here in the sa
 8. **Small, reviewable changes.** One roadmap task per commit or PR, with a conventional commit message (`feat(server): ...`, `test(crdt): ...`).
 9. **UI matches the Figma.** Use only the design tokens in `docs/UI_SPEC.md`. No new colours, no light theme unless asked.
 10. **Ask before scope changes.** Anything listed as out of scope in `docs/PRD.md` needs a new ADR and the team's approval.
+11. **UI follows UI_SPEC.md only.** For UI work use only `docs/UI_SPEC.md` and the Figma frames; do not use the design-style skills (`design-taste-frontend*`, `gpt-taste`, `high-end-visual-design`, `industrial-brutalist-ui`, `minimalist-ui`, `stitch-design-taste`, `ui-ux-pro-max`, `redesign-existing-projects`, `imagegen-frontend-*`, `image-to-code`, `brandkit`) unless I name one.
 
 ## Working with opusplan
 
