@@ -24,3 +24,11 @@ proptest = "1"
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
+
+# Yrs 0.28.1 does unchecked u32 subtraction while integrating an update (block_store.rs:320).
+# A hostile update makes it overflow: debug builds panic, but release builds wrap silently and
+# return Ok with a corrupt document, and one release run of the mutation test hung. Keep the
+# overflow check on for yrs in release so the overflow is an ordinary panic, which
+# SpikeDoc::apply_update turns into an error. This also applies to the Wasm release build.
+[profile.release.package.yrs]
+overflow-checks = true

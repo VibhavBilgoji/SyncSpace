@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc c39ba581dfc828bfeaf18a1d6cdabd7fca54128134dc820b0f381c51754aef94 # shrinks to bytes = [1, 1, 0, 0, 64, 128, 128, 128, 128, 128, 128, 128, 16, 0]
+cc 098714c678dd36869771814ea1dbed9e7bfb09d5b81273e9a234a14ac4f24409 # shrinks to edits = [(0, "aa", 1), (1, "🙂", 1)], flips = [(7026184586290134428, 128)], drops = None
+cc a3983d3e1accd823fe9101f4728f4b6c7e47d41456b46a2b1e4a052f2eecfb24 # shrinks to edits = [(0, "🙂🙂a", 2), (3, "", 0)], flips = [(17921346986639153400, 2)], drops = None

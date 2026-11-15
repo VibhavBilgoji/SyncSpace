@@ -107,7 +107,7 @@ fn generate_parity_fixtures() {
     let mut order: Vec<usize> = (0..log.len()).collect();
     order.sort_by_key(|i| (i * 37) % 101);
     let shuffled: Vec<Vec<u8>> = order.iter().map(|i| log[*i].clone()).collect();
-    let bytes = encode_fixture(&shuffled);
+    let bytes = encode_fixture(&shuffled).unwrap();
 
     let doc = doc_from_fixture(&bytes).unwrap();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -118,4 +118,77 @@ fn generate_parity_fixtures() {
     )
     .unwrap();
     std::fs::write(dir.join("parity_expected_text.txt"), doc.text()).unwrap();
+}
+
+#[test]
+fn empty_fixture_gives_an_empty_document() {
+    let doc = doc_from_fixture(&[]).unwrap();
+    assert!(doc.is_empty());
+}
+
+#[test]
+fn fixture_round_trips_through_encode_fixture() {
+    let src = SpikeDoc::new(2).unwrap();
+    let updates = vec![src.insert(0, "ab").unwrap(), src.insert(2, "🙂").unwrap()];
+    let doc = doc_from_fixture(&encode_fixture(&updates).unwrap()).unwrap();
+    assert_eq!(doc.text(), "ab🙂");
+}
+
+#[test]
+fn fixture_with_a_short_length_header_is_a_decode_error() {
+    for n in 1..4 {
+        assert_eq!(
+            doc_from_fixture(&vec![1u8; n]).err(),
+            Some(sync_crdt::CrdtError::Decode)
+        );
+    }
+}
+
+#[test]
+fn fixture_whose_length_prefix_lies_is_a_decode_error() {
+    // Claims 1000 bytes, delivers 3.
+    let mut lying = 1000u32.to_le_bytes().to_vec();
+    lying.extend_from_slice(&[1, 2, 3]);
+    assert_eq!(
+        doc_from_fixture(&lying).err(),
+        Some(sync_crdt::CrdtError::Decode)
+    );
+    // Claims u32::MAX bytes.
+    let mut huge = u32::MAX.to_le_bytes().to_vec();
+    huge.push(0);
+    assert_eq!(
+        doc_from_fixture(&huge).err(),
+        Some(sync_crdt::CrdtError::Decode)
+    );
+}
+
+#[test]
+fn fixture_containing_an_oversized_update_reports_too_large() {
+    let mut bytes = ((sync_crdt::MAX_UPDATE_BYTES + 1) as u32)
+        .to_le_bytes()
+        .to_vec();
+    bytes.resize(4 + sync_crdt::MAX_UPDATE_BYTES + 1, 0);
+    assert!(matches!(
+        doc_from_fixture(&bytes).err(),
+        Some(sync_crdt::CrdtError::TooLarge(_))
+    ));
+}
+
+#[test]
+fn fixture_with_a_garbage_update_is_an_error_not_a_panic() {
+    let mut bytes = 5u32.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&[0xFF; 5]);
+    assert!(doc_from_fixture(&bytes).is_err());
+}
+
+#[test]
+fn truncating_the_real_fixture_at_any_point_never_panics() {
+    let mut errors = 0;
+    for cut in (0..UPDATES.len()).step_by(7) {
+        if doc_from_fixture(&UPDATES[..cut]).is_err() {
+            errors += 1;
+        }
+    }
+    // Most cuts land inside an update or a header, so most must be reported.
+    assert!(errors > 0);
 }

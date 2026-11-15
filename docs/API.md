@@ -133,7 +133,8 @@ Opened by every page inside a workspace. Server to client JSON only.
 | 4004 | document deleted | redirect to documents list with a toast |
 
 ### Limits
-- Max frame 1 MiB.
+- Max frame 1 MiB. Enforce it in application code below a higher library cap (for example 4 MiB): the WebSocket library drops the TCP connection without a close frame above its own limit, so a clean `1009` is only possible for frames between the two.
+- The 1 MiB limit applies to client update frames. Full-state sync can exceed it for a large document, and a client that enforces the same limit on what it receives then cannot load the document. The 0.3 spike relay sidesteps this with a document size cap (768 KiB, checked before applying an update, close `1009` past it). The hub needs a real answer before documents can grow that large: chunked state sync or a separate state-sync limit, and a per-room size policy.
 - Token bucket per connection: document updates 60/s burst 120; awareness 20/s burst 40 (separate buckets).
 - Reconnect backoff: 0.5 s, 1 s, 2 s, 4 s, then 8 s max, with jitter.
 

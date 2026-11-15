@@ -7,7 +7,11 @@ const text = (page: Page) => page.getByTestId("spike-text");
 
 async function openSpike(page: Page) {
   await page.goto("/spike");
-  await expect(page.getByTestId("spike-status")).toHaveText("connected");
+  // "connected" only means the socket opened. Wait until the relay's full state has been
+  // applied too, or clearing the shared text can race with that first frame.
+  const status = page.getByTestId("spike-status");
+  await expect(status).toHaveText("connected");
+  await expect(status).toHaveAttribute("data-synced", "true");
 }
 
 test("two tabs converge", async ({ browser }) => {
@@ -46,7 +50,7 @@ test("two tabs converge", async ({ browser }) => {
 
     // A tab that opens later receives the full state from the relay.
     await b.reload();
-    await expect(b.getByTestId("spike-status")).toHaveText("connected");
+    await expect(b.getByTestId("spike-status")).toHaveAttribute("data-synced", "true");
     await expect(text(b)).toHaveValue(merged);
   } finally {
     await contextA.close();

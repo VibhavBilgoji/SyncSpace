@@ -6,7 +6,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 
 | Phase | Status | Tag |
 |---|---|---|
-| 0 Bootstrap and spike | in progress (0.1, 0.2 done; 0.3 implemented, CI pending) | |
+| 0 Bootstrap and spike | complete, review fixes in PR; ready to tag `phase-0` | |
 | 1 Accounts, workspaces, design system | not started | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
@@ -21,6 +21,9 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | Date | Task | Result | Tests added | Notes |
 |---|---|---|---|---|
 | 2026-11-15 | 0.1 Monorepo bootstrap | done | 4 (2 Rust, 1 Vitest, 1 Playwright x2 browsers) | `cargo test`, web lint/typecheck/test/build and e2e smoke all green. Docker compose file not run (Docker not installed) |
+| 2026-11-15 | 0.2 CI workflow | done (PR #1, green) | 0 (config only) | First run failed at `typecheck` (generated `LayoutProps` missing on a clean checkout); fixed with `next typegen` |
+| 2026-11-15 | 0.3 Yrs native + Wasm spike | done (PR #2, green) | 9 convergence + 2 parity + 6 relay, 5 Wasm, 16 web, 2 e2e specs x 2 browsers; replaced 2 placeholders | **Yrs works in Wasm: parity passes, byte-identical.** See "Spike 0.3 findings" |
+| 2026-11-15 | Phase 0 review | fixes in PR | +31 tests from `test-writer`; +14 from the review (6 in sync-crdt: mutation property test, 3 regressions, fixture drift guard, state-unchanged tests; 3 relay integration; 5 relay unit) | Final counts: native 22 convergence (20 in release, two tests are debug-only) + 9 parity + 14 relay + 5 relay unit (+2 ignored fixture generators), 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
 
 ## Decisions made during implementation
 
@@ -33,7 +36,11 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - Size: the `--release` `.wasm` is 425 KB after `wasm-opt`.
 - **Offsets are UTF-16** (`OffsetKind::Utf16`) in both builds, so indices match JS strings and textarea selection. Yrs defaults to bytes; the default would corrupt non-ASCII edits.
 - **Client ids and the guid are always passed in.** On `wasm32-unknown-unknown`, `fastrand` has no entropy source (its seed is `None`), so Yrs' "random" client id and UUID would be the same in every tab, and two tabs sharing a client id corrupt the document. The page takes a 53-bit id from `crypto.getRandomValues`; the doc guid is a constant. Use `Options::with_guid_and_client_id`, never `Doc::new()`, in Phase 2.
-- **Yrs panics on hostile input in debug builds.** Decoding an update whose client id does not fit in 53 bits trips a `debug_assert!` (`yrs` `block.rs:93`). The 10 000-case property test found it. Natively, `SpikeDoc::apply_update` decodes inside `catch_unwind` (decoding happens before the document is touched). Panics abort on Wasm, so only the server must accept untrusted bytes, and it validates before relaying.
+- **Yrs panics on hostile input.** (1) Decoding an update whose client id does not fit in 53 bits trips a `debug_assert!` in debug builds (`yrs` `block.rs:93`). (2) One flipped byte in a valid update can decode and apply, then make the next `encode_state_as_update` panic inside Yrs (`merge_pending_v1` unwraps, `transaction.rs:390`); the relay encodes the state for every joining client, so one hostile update could break the room. Found by the property tests. `SpikeDoc::apply_update` now decodes inside `catch_unwind` and only accepts updates that survive an encode and decode round trip. Panics abort on Wasm, so only the server accepts untrusted bytes, and it validates before relaying. (3) **A hostile update can make Yrs panic, wrap or hang while integrating it.** `block_store.rs:320` does an unchecked `u32` subtraction (`skip.next_clock() - block.next_clock()`) when an update's clocks do not line up. Debug builds panic (`attempt to subtract with overflow`). **Release builds wrap silently, return `Ok` and leave a corrupt document, and one release run of the mutation test ran for over 60 s (normally about 6 s).** (An earlier note here called this an `unwrap`; that was wrong, the standalone reproduction below shows the real cause.) It surfaced after `cargo test` failed on CI once and passed on the next run of the same code. The CI log was not readable from here, so the failing test was never seen directly; the mutation property test (fresh random seeds every run) is the likely cause, because under CPU load it failed locally on exactly this path about once per 2 000 cases. CI now annotates failing tests, and the property tests use a fixed seed, so a run can no longer fail by luck. Mitigations, each with a test that fails without it: `[profile.release.package.yrs] overflow-checks = true` in `Cargo.toml` (the overflow becomes an ordinary panic in release and in the Wasm release build too); `SpikeDoc::apply_update` **rehearses** the update on a scratch replica built from its own state (apply, then encode) inside `catch_unwind`, and only if that is clean touches the real document; CI also runs the hostile-input tests in release mode. A compile-time guard refuses `panic = "abort"` on native targets, since `catch_unwind` would silently stop working.
+  - **Cost and alternatives (decide in the Phase 2 load test):** the rehearsal costs one extra encode and decode of the room state per update, so it grows with document size. The alternative is a **shadow document**: keep a persistent shadow replica per room, apply each update to the shadow first inside `catch_unwind`, and only if that succeeds apply it to the live document; after a panic the shadow may be half integrated, so it is rebuilt from the live document (cost only when someone attacks) and the update is rejected. That removes the per-update copy at the price of double the memory per room and one more thing to keep in sync. Measure edits/s and CPU for both at the expected document sizes, and prefer an upstream fix or a pinned patch if one exists.
+  - **The room lock:** the rehearsal runs while the room lock is held. It never crosses an `.await` (CLAUDE.md rule 4), and a panic caught inside it does not poison the lock. Rehearsing outside the lock would let another update change the state between the rehearsal and the real apply, so the rehearsal would no longer prove the real apply is safe; an optimistic variant (rehearse on a snapshot, re-check a version counter under the lock, retry on change) is possible if lock hold time shows up in the load test.
+  - **Wasm cannot catch panics.** The browser relies on the server rejecting bad updates before they are broadcast; see `docs/ARCHITECTURE.md` section 4.
+  - Phase 2 must keep all of the above, and add fuzzing (Phase 7).
 - **Frame size limit:** the WebSocket library drops the TCP connection without a close frame when a frame exceeds its limit, so a clean `1009` needs our own check below a higher library cap (1 MiB check, 4 MiB cap). The Phase 2 hub should copy this.
 - Turbopack bundles the `wasm-bindgen --target web` output as a hashed static asset (`sync_crdt_bg.<hash>.wasm`); the public-folder fallback was not needed.
 - `wasm-pack` 0.15.1 installs with `cargo install wasm-pack --locked`; CI uses `taiki-e/install-action`.
@@ -44,9 +51,11 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - 0.1: scaffolded with the current `create-next-app` (Next 16, React 19, Tailwind 4). Its `cacheComponents` and `partialPrefetching` flags are kept as generated. `apps/web/AGENTS.md` was generated by Next and is kept.
 - 0.1: the `/api/*` rewrite in `next.config.ts` is only active when `API_ORIGIN` is set, so builds work without it.
 - 0.3: local edits return their update bytes (`insert`/`delete` give `Vec<u8>` / `Uint8Array`) instead of exposing a Yrs observer callback: the observer needs `Send + Sync` callbacks, which a JS function is not, and returning bytes is simpler and cannot re-enter.
+- Review: property tests use a fixed seed in CI and locally (`FIXED_SEED`), with saved failing cases in the committed `convergence.proptest-regressions`; `.github/workflows/nightly-proptest.yml` explores new seeds in release mode every night and opens an issue on failure instead of blocking pull requests. CI also runs the hostile-input tests in release mode. See `docs/TESTING.md` section 4.
+- Review: `[profile.release.package.yrs] overflow-checks = true` in `Cargo.toml` (see the Yrs finding); the Wasm size is unchanged (426 192 bytes).
 - 0.3: e2e runs with one worker because the throwaway relay holds a single shared document.
 - 0.3: native test files use an inner `#![allow(clippy::unwrap_used, clippy::expect_used)]`, since clippy's `allow-unwrap-in-tests` does not cover helper functions in integration tests.
-- 0.2: gates that cannot pass yet are `# TODO(task)` stubs in `ci.yml` (wasm-pack, llvm-cov thresholds, web coverage, generated types, Mongo service). `DEPLOYMENT.md` §4 explains the current state.
+- 0.2: gates that cannot pass yet are `# TODO(task)` stubs in `ci.yml` (llvm-cov thresholds, web coverage, generated types, Mongo service). `DEPLOYMENT.md` §4 explains the current state.
 - 0.2: `typecheck` now runs `next typegen` first. `LayoutProps` is a global type that Next generates into `.next/types`, so `tsc` failed on a clean checkout (first CI run) while passing locally where `.next` existed.
 - 0.2: `.gitattributes` (`eol=lf`) added so `prettier --check` is identical on Windows and Linux runners.
 - 0.1: the `wasm` script for `apps/web` was deferred to 0.3 and is added there.
@@ -58,7 +67,66 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - **Delete the spike in Phase 2** (when the real hub lands): `crates/server/src/spike.rs`, `crates/server/src/bin/spike_relay.rs`, `crates/server/tests/spike_relay.rs`, `apps/web/src/app/spike/`, `e2e/tests/spike.spec.ts`, the relay `webServer` in `e2e/playwright.config.ts`, and the `SpikeDoc`/`WasmDoc` API in `sync-crdt` once the block schema replaces it. Keep `textDiff`, the parity fixture approach and the size-limit pattern.
 - The garbage-input property test takes about 50 s because every caught panic prints a message. Acceptable for now; revisit if CI time matters.
 - Docker is not installed on the dev machine, so `infrastructure/docker-compose.yml` is unverified. Run `docker compose -f infrastructure/docker-compose.yml config` and `up -d mongo` once available. Needed before Phase 1 integration tests.
-- Docs say Node 22; the dev machine has Node 24. `engines` allows `>=22`; CI (0.2) should use 22.
+
+## Phase 0 review
+
+`test-writer` added 31 tests and found no bugs. `code-reviewer` returned "changes required" (no blockers). Every finding is fixed; dispositions:
+
+- **Fixed:** weak assertions in `convergence.rs` replaced by real expectations; the oversized-client-id test is debug-only (release builds compile the assert out); `encode_fixture` uses `u32::try_from`; the e2e spec waits for the relay's first frame (`data-synced`) instead of racing it; the spike page reports Wasm-load and apply errors instead of a silent empty editor, nulls its socket handlers on cleanup and no longer touches a freed document; `@types/node` is 22; CI runs `push` only on `main` (PRs ran twice) and pins `wasm-pack@0.15.1`; README quick start no longer implies `cargo run -p server` serves anything; missing task-log rows added.
+- **M3 (panic while applying a hostile update): confirmed and fixed.** The reviewer could not verify it; a mutation property test did (see the second bullet of the Yrs finding above). Debug runs missed it at first by chance, release found it at once. A deterministic regression test and the saved proptest seed keep it fixed. **A second path then surfaced as a flaky CI run** (see finding 3 above): the most likely cause of the intermittent `cargo test` failure is this Yrs panic, not the timing-based relay tests I first suspected. That is an inference from a local reproduction, not from the CI log. Both panic paths now have an explicit regression test that fails without its guard.
+- **M1, M2, m5, m6: fixed in the relay** (`crates/server/src/spike.rs`), each with a test that fails when the protection is removed (checked by disabling each one):
+  - **M1** Every send goes through `send_within` with a timeout (10 s), the relay pings every 20 s and closes a peer that sends nothing, not even a pong, for 60 s. A peer that stops reading used to block its task inside `send`, so it could neither reach the lag check nor free the broadcast backlog. Tests: three unit tests on `send_within` and `close` with a sink that never completes (each with an outer deadline so a missing timeout fails fast instead of hanging), and `relay_drops_a_peer_that_stops_answering_pings_and_keeps_a_live_one`.
+  - **M2** The document has a size cap (768 KiB, below the 1 MiB frame limit) checked before an update is applied, so the full state a late joiner receives always fits the limit the client enforces. An update past the cap closes the connection with 1009. Tests: `relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load` and `apply_refuses_an_update_that_could_pass_the_size_cap`. The spike page also shows an error instead of an empty editor when it cannot apply the state.
+  - **m5** The broadcast backlog is 64 frames instead of 256 (at most 64 MiB pinned by a stuck peer, down from 256 MiB), and the size cap bounds the document. A 1 MiB all-zero frame is still relayed to everyone without changing the document; that is harmless here.
+  - **m6** Updates over 16 KiB are applied with `spawn_blocking` instead of on a Tokio worker.
+  - The two new timing-based relay tests were also made deterministic as a precaution (the size-cap test no longer waits on a timer; the idle test has wide margins); that was not the cause but removes a real fragility. Two existing tests were adapted, not weakened: the 1 MiB frame-limit test now raises the size cap so it checks the frame limit alone, and the lagging-consumer test sends no-op frames with a long send timeout so it still exercises the lag path (the cap would refuse 36 MB of real text). The size cap has its own test.
+  - The same rules are written into `docs/ARCHITECTURE.md` section 4 and `docs/API.md` (Limits) as requirements for the Phase 2 hub, which must keep them, plus a real answer to state sync past 1 MiB (chunking or a per-room size policy), since the cap is a spike shortcut.
+- **m4: fixed.** The Rust toolchain is pinned to 1.100.0 in `rust-toolchain.toml` and in CI (`toolchain: 1.100.0`), and wasm-pack to 0.15.1, so a new release cannot turn CI red without a code change. Bump them together on purpose. Floating major tags for actions (`@v7`, `@v2`) stay: read-only token, no secrets, no `pull_request_target`.
+- **Not covered:** coverage gates (`cargo llvm-cov` is not installed locally and CI does not run it yet), the Wasm no-`catch_unwind` path, and rate limits (the relay has none).
+
+## Upstream report: yrs 0.28.1 overflows while integrating an update
+
+Ready to file against the Yrs repository (y-crdt/y-crdt). Everything below was run; the same bytes are checked in as `crates/sync-crdt/tests/fixtures/yrs_integration_panic.bin` and covered by tests.
+
+**Summary.** `Update::decode_v1` accepts a 28-byte update, and `TransactionMut::apply_update` then panics with `attempt to subtract with overflow` at `src/block_store.rs:320:40` (`let diff_end = skip.next_clock() - block.next_clock();`). With overflow checks off, which is the default in release builds, there is no panic: the subtraction wraps, `apply_update` returns `Ok(())`, and the document is left in an undefined state (in our mutation tests one such run did not finish within 60 s). Applying remote updates is the untrusted-input path of every sync server, so this should return an error (or keep the block pending) instead.
+
+**Environment.** `yrs = "=0.28.1"` (default features), rustc 1.100.0, Windows x86_64. Observed locally; we have not run the reproduction on Linux.
+
+**Reproduction** (`Cargo.toml` has only `yrs = "=0.28.1"`):
+
+```rust
+use yrs::updates::decoder::Decode;
+use yrs::{Doc, Text, Transact, Update};
+
+const UPDATE: [u8; 28] = [
+    0x02, 0x02, 0x02, 0x00, 0x01, 0x01, 0x04, 0x74, 0x65, 0x78, 0x74, 0x02, 0x84, 0x02, 0x01,
+    0x05, 0xf0, 0x9f, 0x99, 0x82, 0x61, 0x01, 0x02, 0x01, 0x00, 0x02, 0x00, 0x00,
+];
+
+fn main() {
+    let doc = Doc::with_client_id(1);
+    let text = doc.get_or_insert_text("text");
+    text.insert(&mut doc.transact_mut(), 0, "existing"); // optional: it also fails on an empty doc
+    let update = Update::decode_v1(&UPDATE).expect("decodes fine");
+    let mut txn = doc.transact_mut();
+    println!("{:?}", txn.apply_update(update)); // panics in debug, prints Ok(()) in release
+}
+```
+
+| Build | Result |
+|---|---|
+| `cargo run` (debug) | panic: `attempt to subtract with overflow`, `block_store.rs:320:40` |
+| `cargo run --release` | prints `Ok(())`; the overflow wrapped |
+| release with `[profile.release.package.yrs] overflow-checks = true` | the same panic as debug |
+
+Expected: `Err(UpdateError::..)`, or the block stays pending, in every build profile.
+
+**How it was found.** A property test builds a valid update history, flips one to three bytes and applies the result to a replica that already has content. The bytes above come from a single flipped byte (`edits = [(0, "🙂🙂a", 2), (3, "", 0)]`, `flips = [(17921346986639153400, 2)]`; see `hostile_update` in `crates/sync-crdt/tests/convergence.rs`).
+
+**Two related panics from the same testing**, both reproducible with the tests named here:
+
+1. `src/block.rs:93`: decoding an update whose client id needs more than 53 bits trips `debug_assert!(value & Self::MASK == 0)` in debug builds, so hostile bytes panic inside `Update::decode_v1`. Test: `hostile_client_id_is_rejected_and_leaves_existing_content_untouched`. Release builds compile the assert out and silently mask the id.
+2. `src/transaction.rs:390` (`merge_pending_v1`): after a mutated update was accepted into the pending queue, a later `encode_state_as_update_v1` panics on `merge_updates_v1(merge).unwrap()` with `EndOfBuffer(1)`, because the pending block cannot be re-encoded. Test: `single_flipped_byte_cannot_poison_later_state_encoding`.
 
 ## Measurements
 
