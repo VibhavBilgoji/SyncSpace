@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "wasm": "wasm-pack build ../../crates/sync-crdt --release --target web --out-dir ../../apps/web/src/wasm/pkg --out-name sync_crdt",
     "lint": "eslint && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "next typegen && tsc --noEmit",
