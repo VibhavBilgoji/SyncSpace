@@ -8,5 +8,18 @@ license.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[dependencies]
+yrs.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+
 [lints]
 workspace = true

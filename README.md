@@ -11,7 +11,7 @@ Stack: Rust (Axum, Tokio, Yrs CRDT, compiled natively and to WebAssembly), Mongo
 - Rust (rustup). `rust-toolchain.toml` installs the `wasm32-unknown-unknown` target.
 - Node 22 or newer and pnpm
 - Docker (MongoDB 7 for local development and integration tests)
-- `wasm-pack` (from task 0.3, for the browser CRDT package)
+- `wasm-pack` (`cargo install wasm-pack --locked`), for the browser CRDT package
 
 ## Quick start
 
@@ -20,6 +20,7 @@ cp .env.example .env                                      # fill in local values
 docker compose -f infrastructure/docker-compose.yml up -d mongo
 cargo run -p server                                       # http://localhost:8080
 pnpm --dir apps/web install
+pnpm --dir apps/web wasm                                  # build the browser CRDT package
 pnpm --dir apps/web dev                                   # http://localhost:3000
 ```
 
@@ -29,6 +30,8 @@ pnpm --dir apps/web dev                                   # http://localhost:300
 |---|---|
 | Rust tests | `cargo test --workspace` |
 | Rust lint | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` |
+| Wasm tests (parity with the native build) | `wasm-pack test --node crates/sync-crdt` |
+| Build the Wasm package | `pnpm --dir apps/web wasm` |
 | Web unit tests | `pnpm --dir apps/web test` |
 | Web lint and types | `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck` |
 | Web format | `pnpm --dir apps/web format` |

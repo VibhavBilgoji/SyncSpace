@@ -8,9 +8,18 @@ edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 
-# Shared dependencies are added here. `yrs` is pinned with an exact version
-# (`=x.y.z`) in task 0.3 so the native and Wasm builds use the same release.
+# `yrs` is pinned with an exact version (CLAUDE.md rule 6): the native server and
+# the Wasm build must use the same release. Bump it in one place, in one change.
 [workspace.dependencies]
+yrs = "=0.28.1"
+thiserror = "2"
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-test = "0.3.80"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time"] }
+tokio-tungstenite = "0.27"
+futures-util = "0.3"
+proptest = "1"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

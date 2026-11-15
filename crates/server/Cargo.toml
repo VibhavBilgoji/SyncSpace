@@ -4,9 +4,16 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+default-run = "server"
 
 [dependencies]
 sync-crdt = { path = "../sync-crdt" }
+axum.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [lints]
 workspace = true

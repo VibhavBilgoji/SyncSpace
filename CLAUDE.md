@@ -46,8 +46,10 @@ syncspace/
 | Run the server | `cargo run -p server` |
 | Rust tests | `cargo test --workspace` |
 | Rust lint | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` |
-| Build the Wasm package (from task 0.3) | `pnpm --dir apps/web wasm` (runs wasm-pack for `crates/sync-crdt`, outputs to `apps/web/src/wasm/pkg`) |
-| Wasm tests | `wasm-pack test --node crates/sync-crdt` |
+| Build the Wasm package | `pnpm --dir apps/web wasm` (runs wasm-pack for `crates/sync-crdt`, outputs to `apps/web/src/wasm/pkg`). Run it before web lint, typecheck, test, build and e2e, which import the package |
+| Wasm tests (includes the parity test) | `wasm-pack test --node crates/sync-crdt` |
+| Regenerate the parity fixtures (rarely) | `cargo test -p sync-crdt --test parity -- --ignored generate_parity_fixtures` |
+| Run the throwaway spike relay (task 0.3, deleted in Phase 2) | `cargo run -p server --bin spike_relay` (listens on 127.0.0.1:8080, page at `/spike`) |
 | Web dev server | `pnpm --dir apps/web dev` |
 | Web unit tests | `pnpm --dir apps/web test` |
 | Web lint and types | `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck` |
