@@ -1,43 +1,45 @@
-# SyncSpace starter kit
+# SyncSpace
 
-Blueprint for building SyncSpace with Claude Code (opusplan). Copy everything in this folder into the root of an empty Git repository, commit it, then follow the steps below.
+A real-time collaborative workspace: block-based documents edited by several people at once, Kanban boards, Admin / Editor / Viewer roles, document version history and an append-only audit log.
 
-## What is here
+A DBMS mini project by Vibhav Bilgoji (24B-CO-076), Sparsh Pai Bir (24B-CO-069) and Suyash Berde (24B-CO-070).
 
+Stack: Rust (Axum, Tokio, Yrs CRDT, compiled natively and to WebAssembly), MongoDB, Next.js (App Router, TypeScript strict), Playwright.
+
+## Prerequisites
+
+- Rust (rustup). `rust-toolchain.toml` installs the `wasm32-unknown-unknown` target.
+- Node 22 or newer and pnpm
+- Docker (MongoDB 7 for local development and integration tests)
+- `wasm-pack` (from task 0.3, for the browser CRDT package)
+
+## Quick start
+
+```bash
+cp .env.example .env                                      # fill in local values
+docker compose -f infrastructure/docker-compose.yml up -d mongo
+cargo run -p server                                       # http://localhost:8080
+pnpm --dir apps/web install
+pnpm --dir apps/web dev                                   # http://localhost:3000
 ```
-CLAUDE.md                     project memory Claude Code loads automatically
-MASTER_PROMPT.md              the first message to paste, plus follow-up prompts
-.env.example                  every environment variable
-.claude/agents/test-writer.md subagent that finds and writes missing tests
-.claude/agents/code-reviewer.md subagent that reviews each phase
-.claude/commands/next-task.md /next-task: plan + implement one roadmap task with tests
-docs/PRD.md                   users, roles, requirements FR1-FR19, scope (v5: version history in scope)
-docs/ARCHITECTURE.md          system design, flows, concurrency, security, failure modes
-docs/DATA_MODEL.md            MongoDB collections, invariants, audit mapping, CRDT layout
-docs/API.md                   REST endpoints, WebSocket protocol, close codes, shared types
-docs/UI_SPEC.md               design tokens and all 44 Figma frames mapped to routes
-docs/TESTING.md               required tests, tools, CI gates
-docs/ROADMAP.md               phases 0-8 with tasks and acceptance criteria
-docs/DECISIONS.md             architecture decision records
-docs/DEPLOYMENT.md            Atlas + Render + Vercel + GitHub Actions guide
-docs/PROGRESS.md              running log Claude keeps up to date
-```
 
-## Steps
+## Commands
 
-1. Create a GitHub repo `syncspace`, clone it, copy these files in, commit.
-2. Install: Rust (rustup, with the `wasm32-unknown-unknown` target), Node 22 with pnpm, Docker, Claude Code.
-3. In the repo root run `claude --model opusplan`, switch to plan mode (Shift+Tab), paste the prompt from `MASTER_PROMPT.md`.
-4. Review the summary and the Phase 0 plan it returns, answer its questions, approve.
-5. Then repeat `/next-task` for each task; at the end of each phase let it run the two agents and tag the phase.
-6. For deployment, use the "Deploy" prompt in `MASTER_PROMPT.md` and do the manual steps in `docs/DEPLOYMENT.md`.
+| Task | Command |
+|---|---|
+| Rust tests | `cargo test --workspace` |
+| Rust lint | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` |
+| Web unit tests | `pnpm --dir apps/web test` |
+| Web lint and types | `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck` |
+| Web format | `pnpm --dir apps/web format` |
+| End-to-end tests | `pnpm --dir e2e install && pnpm --dir e2e exec playwright install chromium firefox && pnpm --dir e2e test` |
 
-## Changes from design v4
+The full list, including coverage and code generation, is in [`CLAUDE.md`](CLAUDE.md).
 
-- Version history added (`document_versions`, FR14 to FR17, Figma frames 18 to 24b), with a new "Saved by" relationship between User and Document version.
-- `documents.version` renamed `revision` (the snapshot counter shown as `rev_N`).
-- Owner is stored as an ADMIN member and cannot be changed or removed.
-- Audit actions: 10 (adds VERSION_SAVE and VERSION_RESTORE), with entity mapping from the Figma audit frames.
-- Workspace WebSocket added for board, document-list and member events; tickets now have a scope.
-- REST goes through a Next.js rewrite so the session cookie is first-party (ADR-006).
-- Due dates, nested documents, workspace deletion and public links stay out of scope (Figma scope notes).
+## Documentation
+
+All design documents are in [`docs/`](docs): PRD, architecture, data model, API, UI spec, testing, roadmap, decisions, deployment and the running progress log.
+
+## How this repo was built
+
+It is built task by task with Claude Code following `docs/ROADMAP.md`. `MASTER_PROMPT.md` holds the prompts used to start each phase.

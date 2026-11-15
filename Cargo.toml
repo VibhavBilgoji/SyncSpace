@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+# Shared dependencies are added here. `yrs` is pinned with an exact version
+# (`=x.y.z`) in task 0.3 so the native and Wasm builds use the same release.
+[workspace.dependencies]
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

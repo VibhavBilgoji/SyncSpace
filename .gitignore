@@ -1,0 +1,24 @@
+# Rust
+target/
+
+# Node
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env
+.env
+.env.local
+
+# Generated
+apps/web/src/wasm/pkg/
+
+# E2E
+e2e/test-results/
+e2e/playwright-report/
+
+# Misc
+*.log
+.DS_Store

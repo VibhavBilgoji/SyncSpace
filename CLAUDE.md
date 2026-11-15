@@ -46,12 +46,13 @@ syncspace/
 | Run the server | `cargo run -p server` |
 | Rust tests | `cargo test --workspace` |
 | Rust lint | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` |
-| Build the Wasm package | `pnpm --dir apps/web wasm` (runs wasm-pack for `crates/sync-crdt`, outputs to `apps/web/src/wasm/pkg`) |
+| Build the Wasm package (from task 0.3) | `pnpm --dir apps/web wasm` (runs wasm-pack for `crates/sync-crdt`, outputs to `apps/web/src/wasm/pkg`) |
 | Wasm tests | `wasm-pack test --node crates/sync-crdt` |
 | Web dev server | `pnpm --dir apps/web dev` |
 | Web unit tests | `pnpm --dir apps/web test` |
 | Web lint and types | `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck` |
-| End-to-end tests | `pnpm --dir e2e test` (needs server, web and MongoDB running) |
+| Web format (Prettier) | `pnpm --dir apps/web format` |
+| End-to-end tests | `pnpm --dir e2e install && pnpm --dir e2e exec playwright install chromium firefox` once, then `pnpm --dir e2e test` (starts the web dev server itself; later tests also need the API and MongoDB) |
 | Regenerate TypeScript types from Rust | `cargo run -p server --bin gen-types` |
 | Seed demo data | `cargo run -p server --bin seed -- --workspace "Engineering Team"` |
 | Coverage | `cargo llvm-cov -p sync-crdt --fail-under-lines 90` and `cargo llvm-cov -p server --fail-under-lines 75` |
