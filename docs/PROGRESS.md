@@ -6,7 +6,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 
 | Phase | Status | Tag |
 |---|---|---|
-| 0 Bootstrap and spike | complete, review fixes in PR; ready to tag `phase-0` | |
+| 0 Bootstrap and spike | complete | `phase-0` on `e2bb9b1` |
 | 1 Accounts, workspaces, design system | not started | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
@@ -23,7 +23,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2026-11-15 | 0.1 Monorepo bootstrap | done | 4 (2 Rust, 1 Vitest, 1 Playwright x2 browsers) | `cargo test`, web lint/typecheck/test/build and e2e smoke all green. Docker compose file not run (Docker not installed) |
 | 2026-11-15 | 0.2 CI workflow | done (PR #1, green) | 0 (config only) | First run failed at `typecheck` (generated `LayoutProps` missing on a clean checkout); fixed with `next typegen` |
 | 2026-11-15 | 0.3 Yrs native + Wasm spike | done (PR #2, green) | 9 convergence + 2 parity + 6 relay, 5 Wasm, 16 web, 2 e2e specs x 2 browsers; replaced 2 placeholders | **Yrs works in Wasm: parity passes, byte-identical.** See "Spike 0.3 findings" |
-| 2026-11-15 | Phase 0 review | fixes in PR | +31 tests from `test-writer`; +14 from the review (6 in sync-crdt: mutation property test, 3 regressions, fixture drift guard, state-unchanged tests; 3 relay integration; 5 relay unit) | Final counts: native 22 convergence (20 in release, two tests are debug-only) + 9 parity + 14 relay + 5 relay unit (+2 ignored fixture generators), 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
+| 2026-11-15 | Phase 0 review | done (PR #3, green; tagged `phase-0` on `e2bb9b1`) | +31 tests from `test-writer`; +14 from the review (6 in sync-crdt: mutation property test, 3 regressions, fixture drift guard, state-unchanged tests; 3 relay integration; 5 relay unit) | Final counts: native 22 convergence (20 in release, two tests are debug-only) + 9 parity + 14 relay + 5 relay unit (+2 ignored fixture generators), 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
 
 ## Decisions made during implementation
 
