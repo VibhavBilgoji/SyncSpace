@@ -1,0 +1,85 @@
+# Testing strategy
+
+Tests are written in the same change as the code they cover. Each roadmap task lists the tests it must add. CI blocks merging when any gate below fails.
+
+## 1. Layers and tools
+
+| Layer | Tool | Location |
+|---|---|---|
+| CRDT logic (native) | `cargo test`, `proptest` | `crates/sync-crdt/src/**` (unit), `crates/sync-crdt/tests/` |
+| CRDT logic (Wasm) | `wasm-bindgen-test` under Node | `crates/sync-crdt/tests/wasm.rs` |
+| Server unit | `cargo test` | next to the code (`#[cfg(test)]`) |
+| Server integration | `cargo test` + a real MongoDB (`testcontainers` locally, a service container in CI) + `reqwest` and `tokio-tungstenite` clients | `crates/server/tests/` |
+| Web unit and components | Vitest + Testing Library + `jsdom` | `apps/web/src/**/*.test.ts(x)` |
+| End to end | Playwright (Chromium, Firefox), two browser contexts for collaboration | `e2e/` |
+| Load | `tools/loadtest` (Rust, N simulated editors over WebSocket) | manual and nightly |
+
+Each integration test creates its own database (`syncspace_test_<uuid>`) and drops it at the end, so tests can run in parallel.
+
+## 2. Required tests
+
+### sync-crdt
+- **Convergence (property test):** 3 to 5 replicas apply random sequences of ops (create, delete, insert, delete text, set type, set props, move) and exchange updates in random orders, with duplicates and delays. All replicas end with identical `blocks()` and identical encoded state.
+- **Native and Wasm parity:** a fixed update sequence (checked-in fixture) produces byte-identical `encode_state_as_update_v1` and identical `blocks()` in both builds.
+- **Projection:** ordering by `(order, block_id)`, ties, every block type, properties round-trip.
+- **Move:** midpoint ordering; concurrent moves of the same block converge to one position with no duplicates.
+- **Restore:** `replace_content(live, target)` makes `blocks(live) == blocks(target)`; a concurrent edit applied during the restore merges; restoring an empty target and restoring into an empty doc both work.
+- **Validation:** random bytes, truncated updates and oversized updates return errors and never panic (fuzz-style property test, at least 10 000 cases).
+
+### server
+- **Auth:** register, duplicate email (409), login success, wrong password and unknown email return the same 401, expired JWT returns 401, logout clears the cookie, argon2 hash is not the password.
+- **Tickets:** valid ticket connects; expired, reused, tampered, wrong scope and wrong Origin are rejected.
+- **RBAC matrix:** one table-driven test that calls every REST endpoint as ADMIN, EDITOR, VIEWER, non-member and anonymous, and asserts the status from the matrix in `API.md`. Adding an endpoint without adding it to this table fails the test (keep a list of routes and compare with the router).
+- **WebSocket frames:** VIEWER Update is rejected with `READ_ONLY` and not applied or broadcast; VIEWER awareness is broadcast; demoting an EDITOR with an open socket makes the next update fail without reconnecting; removing a member closes with 4003; oversized frame closes with 1009; garbage bytes close with 1008.
+- **Sync:** two clients converge; a client that edits offline and reconnects merges; a late joiner receives the full state.
+- **Snapshots:** dirty doc written within 6 s; clean doc not written; final flush when the last client leaves; the lost-edit race (an edit lands during encoding) is written in the next tick; MongoDB failure restores the dirty flag; `revision` increases; `blocks` equals the projection.
+- **Restart durability:** stop the server mid-edit, restart, reconnect clients, final state equals the union of all edits.
+- **Versions:** manual save with label and audit row; automatic version only when changed and at most every 10 minutes (use a controllable clock); retention keeps 50 automatic and all manual and restore; numbering has no gaps under 20 concurrent saves; preview returns the archived blocks; restore creates one RESTORE row holding the pre-restore content, applies the target content live to connected clients, writes VERSION_RESTORE, and can be undone by restoring the RESTORE row; `restored_from_kept` false after pruning; VIEWER cannot save or restore.
+- **Tasks:** create places at column end; move between neighbours, to head, to tail, into empty column; renumbering when the gap is under `1e-9`; concurrent moves of different cards both persist; assignees must be members; removing a member clears their assignments; BOARD_EVENT reaches workspace sockets.
+- **Members:** add by email (404 for unknown email, 409 for duplicate), change role, remove; the owner cannot be demoted or removed (409).
+- **Audit:** every one of the 10 actions writes exactly one row with the mapping in `DATA_MODEL.md` §3; no other action writes a row; non-admins get 403; filters and cursor pagination work; there is no update or delete route (assert the router has none for audit).
+- **Documents:** delete removes versions and closes sockets with 4004; resources in another workspace return 404.
+
+### web
+- Components: every state in `UI_SPEC.md` §6 renders (Button loading and disabled, TaskCard dragging, BlockItem RemoteEdit, VersionCard variants including "no longer kept").
+- Role gating: the editor, board, history panel and settings render the right controls for each role.
+- Editor logic: minimal diff (prefix and suffix) for insert, delete, replace, emoji and multi-byte text; slash menu filtering and keyboard; caret restoration after a remote update.
+- Socket client: reconnect backoff, ticket refresh, handling of every JSON frame type and close code (4001 opens frame 41, 4003 frame 42, 4004 redirect).
+- Board: optimistic move and rollback on error; filters update the URL.
+- Audit: CSV and JSON export of loaded rows (escaping commas, quotes and new lines).
+
+### end to end (Playwright)
+1. Register, create a workspace, create a document, type in three block types, reload, content persists.
+2. Two contexts (Admin and Editor) type in the same block at the same time; both end with the same text; each sees the other's cursor.
+3. Viewer opens the document: no edit controls; a forced update over the socket is rejected.
+4. Admin demotes the Editor while the Editor has the document open; the Editor sees the toast and can no longer type.
+5. Go offline in one context (`context.setOffline(true)`), type, go online; the edits merge.
+6. Save a named version, edit, restore it; the other context sees the restored content live; the history shows the RESTORE card; restore that RESTORE card to undo.
+7. Board: create a task, drag it to another column; the other context sees it move; reload keeps the order.
+8. Admin adds and removes a member; audit trail shows MEMBER_ADD and MEMBER_REMOVE; export JSON contains them.
+9. Command palette opens with Ctrl/Cmd + K and navigates.
+10. Accessibility smoke: `@axe-core/playwright` on login, documents list, editor, board, settings and audit with no serious or critical violations.
+
+### load (report for the project)
+`tools/loadtest --editors 20 --duration 60s --rate 5` prints edits/s received, MongoDB writes/s, broadcast latency p50 and p95, and memory per document. Record results in `docs/PROGRESS.md`. Target: writes/s at least 20 times lower than edits/s, p95 under 100 ms.
+
+## 3. Coverage and quality gates (CI)
+
+| Gate | Threshold |
+|---|---|
+| `cargo fmt --check`, `cargo clippy -D warnings` | must pass |
+| `cargo test --workspace` (with MongoDB service) | must pass |
+| `wasm-pack test --node crates/sync-crdt` | must pass |
+| Line coverage, `sync-crdt` (`cargo llvm-cov`) | 90% or more |
+| Line coverage, `server` | 75% or more |
+| Web: `lint`, `typecheck`, `test --coverage` | pass; 70% or more lines on `src/lib` and `src/components` |
+| Generated TypeScript types up to date | `git diff --exit-code` after generation |
+| Playwright e2e | must pass on `main` and on PRs that touch `apps/web` or `crates/server` |
+
+## 4. Rules for writing tests
+
+- Test behaviour through public interfaces; no tests of private helpers unless they hold tricky logic (fractional ordering, diffing).
+- Use a controllable clock (`trait Clock`) for the 5 s and 10 min workers; never `sleep` for real minutes.
+- Each test sets up its own data with builders (`TestWorkspace::new().with_member(Role::Viewer)`); no shared fixtures that tests mutate.
+- Name tests after the behaviour: `viewer_update_is_rejected_and_not_broadcast`.
+- A bug fix starts with a failing test that reproduces it.
