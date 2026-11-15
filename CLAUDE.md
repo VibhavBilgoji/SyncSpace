@@ -59,7 +59,7 @@ syncspace/
 | End-to-end tests | `pnpm --dir e2e install && pnpm --dir e2e exec playwright install chromium firefox` once, then `pnpm --dir e2e test` (starts the web dev server itself; later tests also need the API and MongoDB) |
 | Regenerate TypeScript types from Rust | `cargo run -p server --bin gen-types` |
 | Seed demo data | `cargo run -p server --bin seed -- --workspace "Engineering Team"` |
-| Coverage | `cargo llvm-cov -p sync-crdt --fail-under-lines 90` and `cargo llvm-cov -p server --fail-under-lines 75` |
+| Coverage (CI gates, both blocking) | `PROPTEST_CASES=500 cargo llvm-cov -p sync-crdt --fail-under-lines 90` and `cargo llvm-cov -p server --fail-under-lines 75` (needs `cargo install cargo-llvm-cov --locked`, and MongoDB 8.0 for the server) |
 
 Keep this table correct. If you add or rename a script, update it here in the same change.
 

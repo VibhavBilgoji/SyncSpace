@@ -9,7 +9,7 @@ Tests are written in the same change as the code they cover. Each roadmap task l
 | CRDT logic (native) | `cargo test`, `proptest` | `crates/sync-crdt/src/**` (unit), `crates/sync-crdt/tests/` |
 | CRDT logic (Wasm) | `wasm-bindgen-test` under Node | `crates/sync-crdt/tests/wasm.rs` |
 | Server unit | `cargo test` | next to the code (`#[cfg(test)]`) |
-| Server integration | `cargo test` + a real MongoDB **8.0** at `MONGODB_URI` (default `mongodb://localhost:27017`: a native install, the compose service, or the CI service container; `testcontainers` is deferred, see `docs/PROGRESS.md`) + `reqwest` and `tokio-tungstenite` clients | `crates/server/tests/` |
+| Server integration | `cargo test` + a real MongoDB **8.0** at `MONGODB_URI` (default `mongodb://localhost:27017`: a native install, the compose service, or the CI service container; ADR-011) + `reqwest` and `tokio-tungstenite` clients | `crates/server/tests/` |
 | Web unit and components | Vitest + Testing Library + `jsdom` | `apps/web/src/**/*.test.ts(x)` |
 | End to end | Playwright (Chromium, Firefox), two browser contexts for collaboration | `e2e/` |
 | Load | `tools/loadtest` (Rust, N simulated editors over WebSocket) | manual and nightly |
@@ -75,6 +75,8 @@ Each integration test creates its own database (`syncspace_test_<uuid>`) and dro
 | Web: `lint`, `typecheck`, `test --coverage` | pass; 70% or more lines on `src/lib` and `src/components` |
 | Generated TypeScript types up to date | `git diff --exit-code` after generation |
 | Playwright e2e | must pass on `main` and on PRs that touch `apps/web` or `crates/server` |
+
+**How coverage is measured.** `cargo llvm-cov`, line coverage of the native build (the commands are in `CLAUDE.md`). It needs the `llvm-tools-preview` component, which `rust-toolchain.toml` installs, and for `server` a MongoDB 8.0 at `MONGODB_URI`. Three things are not in the numbers: `sync-crdt`'s `wasm.rs`, which only compiles for `wasm32` and is covered by `wasm-pack test`; code that runs only in a child process (`main.rs`, `telemetry.rs`, the spike relay binary), which `crates/server/tests/binary.rs` exercises but whose coverage data is not collected, so those files read 0%; and test code itself. CI runs the `sync-crdt` property tests with `PROPTEST_CASES=500` for the coverage step because the percentage does not depend on the case count; the full runs are in the normal test step and the nightly workflow. Both gates block the build. The current numbers are in `docs/PROGRESS.md`.
 
 ## 4. Rules for writing tests
 

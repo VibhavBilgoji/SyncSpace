@@ -20,5 +20,6 @@ e2e/test-results/
 e2e/playwright-report/
 
 # Misc
+coverage.log
 *.log
 .DS_Store
