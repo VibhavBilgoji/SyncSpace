@@ -268,8 +268,7 @@ async fn chunked_body_over_the_limit_is_413_too() {
 
 #[tokio::test]
 async fn panicking_handler_is_500_in_the_error_format_and_server_keeps_serving() {
-    let logs = LogCapture::default();
-    let _guard = logs.install();
+    let logs = LogCapture::start();
     let app = TestApp::spawn(no_mongo(), test_routes).await;
 
     let response = app
@@ -298,8 +297,7 @@ async fn panicking_handler_is_500_in_the_error_format_and_server_keeps_serving()
 
 #[tokio::test]
 async fn internal_error_cause_is_logged_but_never_returned() {
-    let logs = LogCapture::default();
-    let _guard = logs.install();
+    let logs = LogCapture::start();
     let app = TestApp::spawn(no_mongo(), test_routes).await;
 
     let response = app
@@ -503,6 +501,7 @@ async fn several_allowed_origins_are_each_honoured() {
         AppOptions {
             mongo: MongoMode::Unreachable,
             origins: "https://app.example, http://localhost:3000",
+            ..AppOptions::default()
         },
         test_routes,
     )
@@ -526,8 +525,7 @@ async fn several_allowed_origins_are_each_honoured() {
 
 #[tokio::test]
 async fn request_logs_never_contain_the_query_string_or_credentials() {
-    let logs = LogCapture::default();
-    let _guard = logs.install();
+    let logs = LogCapture::start();
     let app = TestApp::spawn(no_mongo(), test_routes).await;
 
     let response = app
@@ -565,10 +563,11 @@ async fn graceful_shutdown_finishes_the_in_flight_request_and_stops() {
         "syncspace_test_unreachable",
         ALLOWED_ORIGIN,
     );
-    let state = AppState {
-        db: db::connect(&config).await.unwrap(),
-        config: std::sync::Arc::new(config.clone()),
-    };
+    let state = AppState::new(
+        db::connect(&config).await.unwrap(),
+        std::sync::Arc::new(config.clone()),
+    )
+    .unwrap();
     let router = app::apply_layers(
         app::routes()
             .route("/__test/slow", get(slow))

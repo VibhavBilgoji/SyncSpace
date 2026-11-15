@@ -54,10 +54,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("connected to MongoDB, indexes are in place");
 
     let port = config.port;
-    let state = AppState {
-        db: database,
-        config: std::sync::Arc::new(config),
-    };
+    let state = AppState::new(database, std::sync::Arc::new(config))?;
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
     tracing::info!(address = %listener.local_addr()?, "listening");
 

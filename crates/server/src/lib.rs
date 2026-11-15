@@ -2,6 +2,7 @@
 //! integration tests build the same app from them.
 
 pub mod app;
+pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;

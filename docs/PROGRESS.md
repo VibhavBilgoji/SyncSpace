@@ -7,7 +7,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | Phase | Status | Tag |
 |---|---|---|
 | 0 Bootstrap and spike | complete | `phase-0` on `e2bb9b1` |
-| 1 Accounts, workspaces, design system | in progress (1.1 done) | |
+| 1 Accounts, workspaces, design system | in progress (1.1 done, 1.2 implemented, CI pending) | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
 | 4 Version history | not started | |
@@ -25,7 +25,8 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2026-11-15 | 0.3 Yrs native + Wasm spike | done (PR #2, green) | 9 convergence + 2 parity + 6 relay, 5 Wasm, 16 web, 2 e2e specs x 2 browsers; replaced 2 placeholders | **Yrs works in Wasm: parity passes, byte-identical.** See "Spike 0.3 findings" |
 | 2026-11-15 | Phase 0 review | done (PR #3, green; tagged `phase-0` on `e2bb9b1`) | +31 tests from `test-writer`; +14 from the review (6 in sync-crdt: mutation property test, 3 regressions, fixture drift guard, state-unchanged tests; 3 relay integration; 5 relay unit) | Final counts: native 22 convergence (20 in release, two tests are debug-only) + 9 parity + 14 relay + 5 relay unit (+2 ignored fixture generators), 8 Wasm, 24 web, 6 e2e. See "Phase 0 review" |
 | 2026-11-16 | 1.1 Server skeleton | done (PR #5, green, merged as `dfd11ab`) | 59 new: 22 unit (config 12, error 6, db 4), 24 API integration, 9 index integration, 4 process-level; all pass locally on MongoDB 8.0.23 | Config, tracing, `/healthz`, MongoDB connection and indexes, error format, 256 KiB body limit, CORS, panic net, graceful shutdown. Each protection was disabled in turn and a test failed every time. CI now has a `mongo:8.0` service. See "MongoDB version alignment" |
-| 2026-11-16 | Coverage gates and ADR-011 | in PR | 0 (CI and docs) | `sync-crdt` 99.07% and `server` 88.37% line coverage, both gates blocking from now. Testcontainers question closed by ADR-011 |
+| 2026-11-16 | Coverage gates and ADR-011 | done (PR #6, green, merged as `144e57e`) | 0 (CI and docs) | `sync-crdt` 99.07% and `server` 88.37% line coverage, both gates blocking from now. Testcontainers question closed by ADR-011 |
+| 2026-11-16 | 1.2 Auth | implemented, **CI run pending** | 66 new: 37 unit (password 7, session 12, cookie 9, validation 9) and 29 integration against MongoDB 8.0.23; 1.1 tests unchanged | Register, login, logout, `me`; argon2id; HS256 JWT in an `HttpOnly` cookie; `AuthUser` extractor. Ten protections were disabled in turn and a test failed every time. A real-binary walkthrough with `curl` and a cookie jar passed and its log held no secret |
 
 ## Decisions made during implementation
 
@@ -72,6 +73,15 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - 1.1: server integration tests read `MONGODB_URI` (default `mongodb://localhost:27017`), give each test a database `syncspace_test_<uuid>` and drop it with a guard that also runs when a test fails (after many runs and killed processes no test database was left behind). Tests that do not need a database build the app against an unreachable MongoDB.
 - ADR-011 (replaces the earlier "testcontainers deferred" open question): server integration tests use the MongoDB at `MONGODB_URI`, a native `mongod` 8.0 locally and a `mongo:8.0` service container in CI, with a database per test. No test starts containers, so no Docker is needed. `docs/TESTING.md` and `docs/DEPLOYMENT.md` say the same.
 
+- 1.2: passwords are hashed with argon2id (19 MiB, 2 iterations, 1 lane, PHC string in `users.password_hash`) on blocking threads, at most **4 at once** (about 76 MiB), because Render's free instance has 512 MB and an unbounded pool would let a few dozen parallel logins kill it. A request that cannot get its turn within 5 s gets 429 `RATE_LIMITED`. This bounds memory; it is not per-user throttling. Measured on this machine in a debug build with the hashing crates optimised: about 80 ms per hash.
+- 1.2: login for an unknown email verifies a dummy hash, and every failed login returns the byte-identical 401 `invalid email or password`. In the real run, wrong password took 80 ms, unknown email 91 ms and a correct login 80 ms. The over-long-input shortcut (a password over 128 characters, an email over 254) skips hashing and returns the same 401.
+- 1.2: the session is an HS256 JWT (`sub`, `iat`, `exp` = 24 h) in `ss_session=...; Max-Age=86400; Path=/; HttpOnly; SameSite=Lax` (`Secure` when `COOKIE_SECURE`). Verification accepts only HS256, requires `exp` and `sub`, and uses **zero leeway** (the library default is 60 s). `jsonwebtoken` 12 has no default crypto backend; the pure-Rust `rust_crypto` feature is used, so no C toolchain is needed. `argon2` 0.6 reads the cost parameters from the stored hash, so raising them later does not lock anyone out.
+- 1.2: `AuthUser` (the extractor every protected route will use) checks the token and nothing else, with no database call; `GET /auth/me` loads the user, and a token for an account that no longer exists is 401. Missing, expired, forged and malformed sessions all give the same `not signed in`.
+- 1.2: emails are stored trimmed and lower-cased, ASCII only; that is what makes the unique index case-insensitive. Registration checks for the email first (so a repeat costs a lookup and not a hash) and the unique index settles two requests that race: one 201, one 409.
+- 1.2: `db.rs` became `db/mod.rs` so the users repository lives in `db/users.rs`; routes are nested under `/api/v1` (`/healthz` stays at the root). `AppState` gained `auth` (the hashing service) and a constructor `AppState::new`.
+- 1.2: in debug builds the `argon2` and `blake2` crates are compiled with `opt-level = 3` (`[profile.dev.package.*]`); without it every test that registers a user would take seconds.
+- 1.2 (test harness): log capture in the integration tests is now one process-wide `tracing` subscriber with each test reading only what was logged after it started. The earlier per-thread subscriber lost every line when other test threads reached a call site first (`tracing` caches per call site whether anyone listens): the auth log test failed in 2 of 3 parallel runs with an empty log. The task 1.1 log tests had the same weakness and were switched too; 10 consecutive parallel runs of the auth and API suites pass.
+
 ## Open questions
 
 (Conflicts between docs, unclear requirements, things the team must decide.)
@@ -81,9 +91,23 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - Docker is not installed on the dev machine, so `infrastructure/docker-compose.yml` is unverified. Run `docker compose -f infrastructure/docker-compose.yml config` and `up -d mongo` once available. Needed before Phase 1 integration tests.
 
 - **Atlas can change the MongoDB major version under us.** Atlas upgrades free clusters to the newest major version after several patch releases of it, and you cannot upgrade one yourself. The version guard test only sees local and CI. Check the cluster's version in Atlas at the first deploy and whenever Atlas announces an upgrade, and follow the bump procedure below if it moved.
-- **One unexplained wasm test failure.** Once, `wasm-pack test --node` printed `8 passed` and then `error: test failed, to rerun pass --test wasm`, right after about 100 s of CPU-heavy release tests. It passed 13 times in a row afterwards, including 12 consecutive runs with exit code 0, so it is not reproduced. PR #5's CI ran `wasm-pack test --node` successfully (no runner error), so there is no CI output to record yet. Keep watching; if it recurs, capture the full runner output here.
+- **`wasm-pack test --node` sometimes exits 1 on Windows after all tests passed: Node crashes while shutting down.** Captured verbatim (2026-11-16, local, Node 24.15.0, `wasm-pack` 0.15.1):
+  ```
+  test result: ok. 8 passed; 0 failed; 0 ignored; 0 filtered out; finished in 0.07s
+
+  Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file srcwinasync.c, line 76
+  Error: Node failed with exit_code -1073740791
+  error: test failed, to rerun pass `--test wasm`
+  ```
+  `-1073740791` is `0xC0000409` (a fast-fail abort). It is a libuv assertion in Node's Windows-only source (`srcwinasync.c`) at process exit, after the results are printed, so it is not a failing test and not our code. It is intermittent: 2 failures, both immediately after a ~100 s CPU-heavy release-mode test run, against 13 consecutive standalone passes. The Linux CI runs of `wasm-pack test` passed every time (PRs 5 and 6), which fits a Windows-only shutdown race. If it blocks you locally, run the command again; if it ever shows up in CI, record that output here and look at pinning the Node version for that step.
 - **Windows Firewall may ask about `server.exe`.** The process-level tests start the real binary, which binds `0.0.0.0:$PORT` (Render needs that). Allowing or cancelling the prompt does not matter for the tests, which connect over loopback.
 - The empty folder `C:\Program Files\MongoDB\Server\9.0` is left over from the removed 9.0 install. It is harmless; the running service is 8.0.23.
+
+- **Sessions cannot be revoked.** The JWT is stateless: logout clears the cookie, but a stolen token stays valid until it expires (24 h). A revocation list or a per-user token version would fix it; it is not in scope for 1.2.
+- **No login throttling per account or IP yet.** Only the memory cap on concurrent hashing exists, so online password guessing is not slowed. Planned for Phase 7 hardening; say if it should come sooner.
+- **Logout needs a valid session** (as `API.md` says). A client whose cookie has already expired gets 401 from logout; the browser drops an expired cookie by itself, so this is harmless.
+- **Emails are ASCII only** (no internationalised addresses). Simple and strict.
+- **Registration reveals whether an email is taken** (the 409 required by `API.md`). Login does not.
 
 ## MongoDB version alignment (task 1.1)
 
@@ -124,6 +148,10 @@ Line coverage of the native build with `cargo llvm-cov` 0.9.1 on the code of PR 
 `server` by file (lines): `db.rs` 100%, `error.rs` 98.3%, `config.rs` 95.8%, `spike.rs` 94.5%, `extract.rs` 93.3%, `health.rs` 86.7%, `app.rs` 75.0%, `main.rs` 0%, `telemetry.rs` 0%, `bin/spike_relay.rs` 0%. 64 of the 117 missed lines are in the last three files, which run only in a child process: `crates/server/tests/binary.rs` exercises them, but the child's coverage data is not collected. `app.rs` is low mostly because `shutdown_signal` and the production `router()` wrapper are not called by the tests (the tests build the same app through `apply_layers`). The one missed `sync-crdt` line is the over-4 GiB error branch in `parity.rs`.
 
 How it is run in CI (the `rust` job, after `wasm-pack test`): `bash .github/scripts/coverage-gate.sh sync-crdt 90` (with `PROPTEST_CASES=500`), then `... server 75`. The script runs `cargo llvm-cov -p <crate> --fail-under-lines <n>`, prints the table, and emits the measured percentage as a `::notice` annotation, and a `::error` annotation when the gate fails; `cargo-llvm-cov` 0.9.1 itself fails a run under the threshold with exit code 1 and no message, which GitHub would show only as "Process completed with exit code 1". With 500 cases the `sync-crdt` run takes 10 s instead of 2 min locally and reports the same percentage (99.07%). Running these gates is what first proves, on a real runner, that `cargo-llvm-cov` 0.9.1 and the `llvm-tools-preview` component work in CI; this PR's CI run is that proof.
+
+**Confirmed on the CI runner** (PR #6, read from the gate script's annotations): `sync-crdt` 99.07% and `server` 88.22% line coverage, so the script, `cargo-llvm-cov` 0.9.1 and the `llvm-tools-preview` component all work in CI; the local `server` number was 88.37%.
+
+**After task 1.2** (local, MongoDB 8.0.23): `server` **92.49%** (1565 of 1692 lines; regions 91.65%, functions 90.37%). The auth files: `cookie.rs`, `extractor.rs`, `session.rs` 100%, `validation.rs` 99.5%, `handlers.rs` 97.5%, `mod.rs` 94.6%, `password.rs` 89.3% (the missed lines are the branches that handle a failure to build the hasher, which cannot be provoked with the fixed parameters). `main.rs`, `telemetry.rs` and the spike binary still read 0% for the reason given above. The gates stay blocking.
 
 ## Phase 0 review
 `test-writer` added 31 tests and found no bugs. `code-reviewer` returned "changes required" (no blockers). Every finding is fixed; dispositions:
