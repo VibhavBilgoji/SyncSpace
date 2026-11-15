@@ -10,7 +10,7 @@ Stack: Rust (Axum, Tokio, Yrs CRDT, compiled natively and to WebAssembly), Mongo
 
 - Rust (rustup). `rust-toolchain.toml` pins the toolchain (1.100.0) and installs the `wasm32-unknown-unknown` target.
 - Node 22 or newer and pnpm
-- Docker (MongoDB 7 for local development and integration tests)
+- MongoDB 8.0 for local development and the server integration tests: either Docker (`docker compose -f infrastructure/docker-compose.yml up -d mongo`) or a native MongoDB Community Server 8.0 on `localhost:27017`. It is the version Atlas free clusters run; do not use another major version (a test checks it).
 - `wasm-pack` (`cargo install wasm-pack --locked`), for the browser CRDT package
 
 ## Quick start

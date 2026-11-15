@@ -6,7 +6,7 @@ Work through the phases in order. Each task is one plan-and-implement cycle in C
 
 | Task | Deliverable | Acceptance criteria and tests |
 |---|---|---|
-| 0.1 | Monorepo: Cargo workspace (`sync-crdt`, `server`), Next.js app in `apps/web` (pnpm, TypeScript strict, ESLint, Prettier, Vitest), `e2e/` with Playwright, `infrastructure/docker-compose.yml` with MongoDB 7, `.env.example`, `.gitignore`, `README.md` | `cargo test`, `pnpm test`, `pnpm lint` run green on an empty project |
+| 0.1 | Monorepo: Cargo workspace (`sync-crdt`, `server`), Next.js app in `apps/web` (pnpm, TypeScript strict, ESLint, Prettier, Vitest), `e2e/` with Playwright, `infrastructure/docker-compose.yml` with MongoDB 8.0 (the major version Atlas free clusters run), `.env.example`, `.gitignore`, `README.md` | `cargo test`, `pnpm test`, `pnpm lint` run green on an empty project |
 | 0.2 | CI workflow `ci.yml` (`DEPLOYMENT.md` §4) running every gate in `TESTING.md` §3 that applies so far | CI green on a PR |
 | 0.3 | Spike: `sync-crdt` with one shared Y.Text, compiled natively and to Wasm; a throwaway Axum WebSocket relay; two browser tabs converge | Parity test passes; a short note in `PROGRESS.md`. If Yrs in Wasm fails, stop and record the fallback (Yjs on the client) as an ADR before going on |
 

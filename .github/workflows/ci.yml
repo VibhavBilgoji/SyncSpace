@@ -21,7 +21,19 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # TODO(phase 1): add a mongo:7 service and MONGODB_URI once integration tests need it.
+    # The server integration tests need a real MongoDB. Same major version as Atlas free
+    # clusters (8.0) and as infrastructure/docker-compose.yml; see docs/DEPLOYMENT.md.
+    services:
+      mongo:
+        image: mongo:8.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping: 1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MONGODB_URI: mongodb://localhost:27017
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -88,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The spike relay is started by Playwright (see e2e/playwright.config.ts).
-    # TODO(phase 1): mongo:7 service, and start the real API instead of the relay.
+    # TODO(phase 1): mongo:8.0 service, and start the real API instead of the relay.
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

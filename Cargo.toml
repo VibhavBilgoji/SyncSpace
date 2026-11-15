@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.94.1"
 license = "MIT"
 
 # `yrs` is pinned with an exact version (CLAUDE.md rule 6): the native server and
@@ -16,10 +16,20 @@ thiserror = "2"
 wasm-bindgen = "=0.2.130"
 wasm-bindgen-test = "0.3.80"
 axum = { version = "0.8", features = ["ws"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal"] }
 tokio-tungstenite = "0.27"
 futures-util = "0.3"
 proptest = "1"
+mongodb = "3.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "catch-panic"] }
+dotenvy = "0.15"
+base64 = "0.23"
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

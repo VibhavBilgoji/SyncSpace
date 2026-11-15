@@ -1,4 +1,11 @@
-//! SyncSpace API server library. The Axum API, MongoDB access and the WebSocket hub
-//! arrive in later tasks; for now it only holds the throwaway spike relay.
+//! SyncSpace API server library. `main.rs` wires these modules into the real process; the
+//! integration tests build the same app from them.
 
+pub mod app;
+pub mod config;
+pub mod db;
+pub mod error;
+pub mod extract;
+pub mod health;
 pub mod spike;
+pub mod telemetry;

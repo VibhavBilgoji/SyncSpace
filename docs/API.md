@@ -16,7 +16,12 @@ Base path for REST: `/api/v1`. JSON bodies use `snake_case`. Ids are 24-characte
 | 404 | `NOT_FOUND` | unknown resource, or a resource in a workspace the caller is not in (do not leak existence) |
 | 409 | `CONFLICT` | duplicate email or slug, member already present, owner change attempt |
 | 422 | `VALIDATION` | field rules failed; `details` maps field to message |
+| 405 | `METHOD_NOT_ALLOWED` | the path exists but not for this HTTP method |
+| 413 | `PAYLOAD_TOO_LARGE` | request body over 256 KiB (also when it is streamed without a Content-Length) |
 | 429 | `RATE_LIMITED` | too many requests |
+| 500 | `INTERNAL` | a server fault. The message is always "internal server error"; the cause is only in the server log |
+
+Every response the server produces follows this format, including unknown paths (404), wrong methods (405) and panics caught by the server (500). A body that is not JSON, is truncated JSON, or is sent without `Content-Type: application/json` gives 400. Valid JSON of the wrong shape (a missing field, a wrong type) gives 422 with the reason in `details.body`; field rules checked by a handler map each field to its message in `details`.
 
 **Pagination.** Cursor based: `?limit=50&cursor=<opaque>` and response `{items: [...], next_cursor: string | null}`.
 
@@ -27,7 +32,7 @@ Role column: minimum role needed in the workspace the resource belongs to.
 ### Auth and health
 | Method and path | Role | Body | Response |
 |---|---|---|---|
-| `GET /healthz` | public | | `{status: "ok", mongo: "ok"}` |
+| `GET /healthz` | public | | 200 `{status: "ok", mongo: "ok"}`; 503 `{status: "degraded", mongo: "error"}` when MongoDB cannot be reached or a ping takes more than 2 s. The cause is never in the answer. **Served at the server root, not under `/api/v1`** (Render's health check and the deploy checklist call `/healthz`) |
 | `POST /auth/register` | public | `{name, email, password}` (password 8 to 128 chars) | 201 `User` + session cookie |
 | `POST /auth/login` | public | `{email, password}` | 200 `User` + session cookie; 401 on bad credentials (same message for unknown email) |
 | `POST /auth/logout` | user | | 204, clears cookie |
