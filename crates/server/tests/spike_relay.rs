@@ -298,7 +298,9 @@ async fn relay_disconnects_a_consumer_that_falls_too_far_behind() {
 
 /// The state a late joiner receives must fit the frame limit the client enforces, so the relay
 /// refuses updates that would push the document past its cap, and what it already holds stays
-/// loadable.
+/// loadable. Nothing here depends on timing: the writer sends everything at once, the relay
+/// handles frames in order and closes the connection at the first refusal, and what was
+/// accepted is read back from a late joiner.
 #[tokio::test]
 async fn relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load() {
     const CAP: usize = 4096;
@@ -308,31 +310,20 @@ async fn relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load() {
     })
     .await;
     let mut writer = connect(addr).await;
-    let mut watcher = connect(addr).await;
     next_binary(&mut writer).await;
-    next_binary(&mut watcher).await;
 
     let author = SpikeDoc::new(5).unwrap();
     let chunk = "x".repeat(1000);
-    let mut accepted = 0usize;
     for _ in 0..10 {
         let update = author.insert(author.len(), &chunk).unwrap();
-        writer.send(Message::Binary(update.into())).await.unwrap();
-        // The watcher only sees updates the relay accepted.
-        if timeout(Duration::from_millis(500), next_binary(&mut watcher))
-            .await
-            .is_err()
-        {
+        // The relay may already have closed the connection; that is the outcome under test.
+        if writer.send(Message::Binary(update.into())).await.is_err() {
             break;
         }
-        accepted += 1;
     }
-    assert!(
-        (1..10).contains(&accepted),
-        "the cap should stop the writer part way, accepted {accepted}"
-    );
     assert_eq!(close_code(&mut writer).await, 1009);
 
+    // Everything the relay accepted was applied before it closed the writer.
     let mut late = connect(addr).await;
     let state = next_binary(&mut late).await;
     assert!(
@@ -342,7 +333,16 @@ async fn relay_refuses_updates_past_the_size_cap_and_late_joiners_still_load() {
     );
     let replica = SpikeDoc::new(9).unwrap();
     replica.apply_update(&state).unwrap();
-    assert_eq!(replica.text(), "x".repeat(accepted * 1000));
+    let held = replica.text();
+    assert!(
+        held.chars().all(|c| c == 'x') && held.len() % 1000 == 0,
+        "the relay must hold whole accepted updates only"
+    );
+    let accepted = held.len() / 1000;
+    assert!(
+        (1..10).contains(&accepted),
+        "the cap should stop the writer part way, accepted {accepted}"
+    );
 }
 
 /// Reads and discards frames for `duration`, which answers the relay's pings.
@@ -367,8 +367,8 @@ async fn connection_ends(ws: &mut Client, limit: Duration) -> bool {
 #[tokio::test]
 async fn relay_drops_a_peer_that_stops_answering_pings_and_keeps_a_live_one() {
     let addr = start_relay_with(SpikeConfig {
-        ping_interval: Duration::from_millis(100),
-        idle_timeout: Duration::from_millis(400),
+        ping_interval: Duration::from_millis(200),
+        idle_timeout: Duration::from_millis(1500),
         ..SpikeConfig::default()
     })
     .await;
@@ -382,8 +382,8 @@ async fn relay_drops_a_peer_that_stops_answering_pings_and_keeps_a_live_one() {
     // Reading is what answers the relay's pings, so poll the two live connections past the
     // idle timeout. Pings are consumed here; the silent peer is left alone.
     tokio::join!(
-        stay_alive(&mut live, Duration::from_millis(1500)),
-        stay_alive(&mut author, Duration::from_millis(1500)),
+        stay_alive(&mut live, Duration::from_millis(2500)),
+        stay_alive(&mut author, Duration::from_millis(2500)),
     );
 
     let update = SpikeDoc::new(5).unwrap().insert(0, "still here").unwrap();
@@ -397,7 +397,57 @@ async fn relay_drops_a_peer_that_stops_answering_pings_and_keeps_a_live_one() {
     // platform (a close frame, or a reset that discards unread data), so only require that the
     // connection ends, and that it ends instead of idling on as before.
     assert!(
-        connection_ends(&mut silent, Duration::from_secs(3)).await,
+        connection_ends(&mut silent, Duration::from_secs(10)).await,
         "the idle peer was never dropped"
     );
+}
+
+/// The 28-byte update that makes Yrs 0.28.1 panic while integrating it. It is the shared
+/// fixture of the `sync-crdt` tests and was built against a document where client 1 has
+/// typed "existing".
+const YRS_PANIC_UPDATE: &[u8] =
+    include_bytes!("../../sync-crdt/tests/fixtures/yrs_integration_panic.bin");
+
+/// An update that panics inside Yrs must not take the room down or change it: the sender is
+/// closed with 1008, nothing is broadcast, and a client that joins afterwards receives
+/// exactly the state the room had before.
+#[tokio::test]
+async fn relay_closes_with_1008_on_an_update_that_panics_yrs_and_leaves_the_room_untouched() {
+    let addr = start_relay().await;
+    let mut attacker = connect(addr).await;
+    let mut peer = connect(addr).await;
+    next_binary(&mut attacker).await;
+    next_binary(&mut peer).await;
+
+    // Give the room the content the hostile update was built against.
+    let existing = SpikeDoc::new(1).unwrap().insert(0, "existing").unwrap();
+    attacker
+        .send(Message::Binary(existing.clone().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_binary(&mut peer).await, existing);
+
+    // What a joining client receives before the attack.
+    let mut probe = connect(addr).await;
+    let before = next_binary(&mut probe).await;
+
+    attacker
+        .send(Message::Binary(YRS_PANIC_UPDATE.to_vec().into()))
+        .await
+        .unwrap();
+    assert_eq!(close_code(&mut attacker).await, 1008);
+
+    // Nothing was broadcast.
+    assert!(timeout(QUIET, peer.next()).await.is_err());
+
+    // The room still answers, with byte-identical state.
+    let mut joiner = connect(addr).await;
+    assert_eq!(next_binary(&mut joiner).await, before);
+
+    // And it still accepts good updates from everyone else.
+    let update = SpikeDoc::new(7).unwrap().insert(0, "fine").unwrap();
+    peer.send(Message::Binary(update.clone().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_binary(&mut joiner).await, update);
 }

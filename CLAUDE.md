@@ -49,6 +49,8 @@ syncspace/
 | Build the Wasm package | `pnpm --dir apps/web wasm` (runs wasm-pack for `crates/sync-crdt`, outputs to `apps/web/src/wasm/pkg`). Run it before web lint, typecheck, test, build and e2e, which import the package |
 | Wasm tests (includes the parity test) | `wasm-pack test --node crates/sync-crdt` |
 | Regenerate the parity fixtures (rarely) | `cargo test -p sync-crdt --test parity -- --ignored generate_parity_fixtures` |
+| Property tests with another seed (nightly does this) | `PROPTEST_RNG_SEED=<n> PROPTEST_CASES=<n> cargo test -p sync-crdt --release --test convergence` |
+| Hostile-input tests in release mode (CI runs them) | `cargo test -p sync-crdt --release --test convergence --test parity` |
 | Run the throwaway spike relay (task 0.3, deleted in Phase 2) | `cargo run -p server --bin spike_relay` (listens on 127.0.0.1:8080, page at `/spike`) |
 | Web dev server | `pnpm --dir apps/web dev` |
 | Web unit tests | `pnpm --dir apps/web test` |

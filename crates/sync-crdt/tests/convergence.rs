@@ -2,7 +2,26 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)] // test code may unwrap (CLAUDE.md rule 3 covers non-test code)
 
 use proptest::prelude::*;
+use proptest::test_runner::RngSeed;
 use sync_crdt::{CrdtError, MAX_UPDATE_BYTES, SpikeDoc};
+
+/// Seed for the property tests. A fixed seed makes every CI run explore the same cases, so a
+/// run cannot fail by luck: a failure points at a change, and saved failures in
+/// `convergence.proptest-regressions` replay first. The nightly workflow explores new cases by
+/// setting `PROPTEST_RNG_SEED` (and `PROPTEST_CASES`) and files an issue when it finds one.
+const FIXED_SEED: u64 = 0x5EED_0003;
+
+fn proptest_config(default_cases: u32) -> ProptestConfig {
+    // `default()` reads PROPTEST_CASES and PROPTEST_RNG_SEED when they are set.
+    let mut config = ProptestConfig::default();
+    if std::env::var_os("PROPTEST_CASES").is_none() {
+        config.cases = default_cases;
+    }
+    if std::env::var_os("PROPTEST_RNG_SEED").is_none() {
+        config.rng_seed = RngSeed::Fixed(FIXED_SEED);
+    }
+    config
+}
 
 fn doc(client_id: u64) -> SpikeDoc {
     SpikeDoc::new(client_id).unwrap()
@@ -110,7 +129,7 @@ fn update_over_the_size_limit_is_rejected() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(10_000))]
+    #![proptest_config(proptest_config(10_000))]
 
     #[test]
     fn apply_update_rejects_garbage_without_panicking(
@@ -272,8 +291,53 @@ proptest! {
     }
 }
 
+/// One generated edit: (index, text to insert, how many units to delete afterwards).
+type Edit = (u32, String, u32);
+
+/// Builds a valid history and mutates its bytes: the update a hostile peer could send to a
+/// replica that already has content.
+fn hostile_update(edits: &[Edit], flips: &[(usize, u8)], drops: Option<usize>) -> Vec<u8> {
+    let author = doc(2);
+    let mut bytes = Vec::new();
+    for (at, chunk, del) in edits {
+        let at = (*at).min(author.len());
+        bytes = author.insert(at, chunk).unwrap();
+        let del = (*del).min(author.len().saturating_sub(at));
+        if del > 0 {
+            bytes = author.delete(at, del).unwrap();
+        }
+    }
+    let mut hostile = author.encode_state_as_update();
+    hostile.extend_from_slice(&bytes);
+    for (pos, byte) in flips {
+        let len = hostile.len();
+        hostile[pos % len] = *byte;
+    }
+    if let Some(cut) = drops {
+        hostile.truncate(cut % (hostile.len() + 1));
+    }
+    hostile
+}
+
+/// The replica that receives hostile updates: it already holds some content.
+fn replica_with_content() -> SpikeDoc {
+    let replica = doc(1);
+    replica.insert(0, "existing").unwrap();
+    replica
+}
+
+/// Delivers a mutated update. The outcome may be Ok or Err; it must never panic, and the
+/// replica must stay usable, including encoding its state for the next client that joins.
+fn apply_mutated(edits: &[Edit], flips: &[(usize, u8)], drops: Option<usize>) {
+    let hostile = hostile_update(edits, flips, drops);
+    let replica = replica_with_content();
+    let _ = replica.apply_update(&hostile);
+    let _ = replica.text();
+    let _ = replica.encode_state_as_update();
+}
+
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(10_000))]
+    #![proptest_config(proptest_config(10_000))]
 
     /// Garbage mostly dies at decode. Mutating a valid update keeps it decodable far more
     /// often, so this reaches the integration step, where hostile but well-formed updates
@@ -284,33 +348,23 @@ proptest! {
         flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..4),
         drops in proptest::option::of(any::<usize>()),
     ) {
-        let author = doc(2);
-        let mut bytes = Vec::new();
-        for (at, chunk, del) in &edits {
-            let at = (*at).min(author.len());
-            bytes = author.insert(at, chunk).unwrap();
-            let del = (*del).min(author.len().saturating_sub(at));
-            if del > 0 {
-                bytes = author.delete(at, del).unwrap();
-            }
-        }
-        // Deliver the whole history, mutated, to a replica that already has content.
-        let mut hostile = author.encode_state_as_update();
-        hostile.extend_from_slice(&bytes);
-        for (pos, byte) in &flips {
-            let len = hostile.len();
-            hostile[pos % len] = *byte;
-        }
-        if let Some(cut) = drops {
-            hostile.truncate(cut % (hostile.len() + 1));
-        }
-
-        let replica = doc(1);
-        replica.insert(0, "existing").unwrap();
-        let _ = replica.apply_update(&hostile);
-        let _ = replica.text();
-        let _ = replica.encode_state_as_update();
+        apply_mutated(&edits, &flips, drops);
     }
+}
+
+/// Regression: this input made Yrs panic inside `apply_update` (`block_store.rs:320`, an
+/// unchecked `u32` subtraction while integrating blocks whose clocks do not line up; in a
+/// release build without overflow checks it does not panic but wraps). It was found by the
+/// property test above, which failed one run in a few on CI. Catching the panic around the
+/// real apply would leave a half integrated document, so the update is rehearsed on a
+/// scratch replica first.
+#[test]
+fn mutated_update_that_panicked_yrs_while_integrating_is_rejected() {
+    apply_mutated(
+        &[(0, "🙂🙂a".to_string(), 2), (3, String::new(), 0)],
+        &[(17921346986639153400, 2)],
+        None,
+    );
 }
 
 /// Regression for a bug the mutation property test found: one flipped byte in a valid update
@@ -338,4 +392,104 @@ fn single_flipped_byte_cannot_poison_later_state_encoding() {
     let joiner = doc(9);
     joiner.apply_update(&state).unwrap();
     assert_eq!(joiner.text(), replica.text());
+}
+
+// --- rejected updates must leave the document exactly as it was -------------------------
+
+/// The update that makes Yrs 0.28.1 panic inside `apply_update` (see the regression test
+/// above). Its bytes are checked in so the relay test and the upstream bug report use exactly
+/// the same input.
+const INTEGRATION_PANIC_UPDATE: &[u8] = include_bytes!("fixtures/yrs_integration_panic.bin");
+
+fn integration_panic_input() -> Vec<u8> {
+    hostile_update(
+        &[(0, "🙂🙂a".to_string(), 2), (3, String::new(), 0)],
+        &[(17921346986639153400, 2)],
+        None,
+    )
+}
+
+/// Regenerates `tests/fixtures/yrs_integration_panic.bin`. Run on purpose, never in CI:
+/// `cargo test -p sync-crdt --test convergence -- --ignored write_integration_panic_fixture`
+#[test]
+#[ignore = "writes tests/fixtures; run manually when the fixture should change"]
+fn write_integration_panic_fixture() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    std::fs::write(
+        dir.join("yrs_integration_panic.bin"),
+        integration_panic_input(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn integration_panic_fixture_matches_the_builder() {
+    assert_eq!(
+        INTEGRATION_PANIC_UPDATE,
+        integration_panic_input().as_slice(),
+        "the checked-in bytes drifted from the builder; regenerate the fixture on purpose"
+    );
+}
+
+/// A rejected update must not change the document at all, not even half of it. The state
+/// vector says what the replica has seen; the encoded state is its full content.
+#[test]
+fn rejected_updates_leave_the_state_vector_and_state_unchanged() {
+    let replica = replica_with_content();
+    let other = doc(3);
+    replica
+        .apply_update(&other.insert(0, "from another peer ").unwrap())
+        .unwrap();
+    let vector = replica.state_vector();
+    let state = replica.encode_state_as_update();
+    let text = replica.text();
+
+    // (input, the exact error it must be rejected with)
+    let cases: Vec<(&str, Vec<u8>, CrdtError)> = vec![
+        ("not an update", vec![0xFF; 9], CrdtError::Decode),
+        ("empty input", vec![], CrdtError::Decode),
+        // Decodes and re-encodes fine, then makes Yrs panic while integrating it. This is
+        // rejected only because the update is rehearsed on a scratch replica first.
+        (
+            "panics Yrs while integrating",
+            INTEGRATION_PANIC_UPDATE.to_vec(),
+            CrdtError::Apply,
+        ),
+        (
+            "over the size limit",
+            vec![0u8; MAX_UPDATE_BYTES + 1],
+            CrdtError::TooLarge(MAX_UPDATE_BYTES + 1),
+        ),
+    ];
+    for (name, input, expected) in cases {
+        assert_eq!(replica.apply_update(&input), Err(expected), "case: {name}");
+        assert_eq!(replica.state_vector(), vector, "state vector moved: {name}");
+        assert_eq!(
+            replica.encode_state_as_update(),
+            state,
+            "state moved: {name}"
+        );
+        assert_eq!(replica.text(), text, "text moved: {name}");
+    }
+
+    // Still a working replica afterwards.
+    let joiner = doc(9);
+    joiner.apply_update(&state).unwrap();
+    assert_eq!(joiner.text(), text);
+    replica.insert(0, ">").unwrap();
+    assert_ne!(replica.state_vector(), vector);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn oversized_client_id_also_leaves_the_state_vector_unchanged() {
+    let replica = replica_with_content();
+    let vector = replica.state_vector();
+    let state = replica.encode_state_as_update();
+    assert_eq!(
+        replica.apply_update(&update_with_oversized_client_id()),
+        Err(CrdtError::Decode)
+    );
+    assert_eq!(replica.state_vector(), vector);
+    assert_eq!(replica.encode_state_as_update(), state);
 }

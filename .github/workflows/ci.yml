@@ -41,6 +41,11 @@ jobs:
             grep -E "^test .* FAILED|panicked at|^ *(left|right):|assertion" test.log | head -40 | while IFS= read -r line; do echo "::error::${line}"; done
             exit 1
           fi
+      # Release builds differ from debug: no debug_assert, and wrapping overflow unless it is
+      # switched on for yrs (see [profile.release.package.yrs] in Cargo.toml). They are what
+      # ships, so the hostile-input tests must pass there too. The seed is fixed, so this step
+      # cannot fail by luck; the nightly workflow explores new seeds.
+      - run: cargo test -p sync-crdt --release --test convergence --test parity
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack@0.15.1
