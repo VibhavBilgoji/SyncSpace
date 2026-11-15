@@ -37,6 +37,7 @@ REST goes through the Vercel rewrite so the login cookie is first-party. WebSock
 Three workflows in `.github/workflows/`.
 
 ### ci.yml (every push and PR)
+The block below is the **target** workflow once every phase has landed. The file in `.github/workflows/ci.yml` is the source of truth for what runs today; it grows gate by gate (see "Current state" under the block).
 ```yaml
 name: ci
 on: [push, pull_request]
@@ -88,6 +89,10 @@ jobs:
       - run: pnpm --dir e2e test
 ```
 Pin action versions to the latest major at implementation time.
+
+**Current state (task 0.2).** Actions are pinned to `actions/checkout@v7`, `actions/setup-node@v7`, `pnpm/action-setup@v6`, `Swatinem/rust-cache@v2` and `actions/upload-artifact@v7`. There is no root `package.json`, so `pnpm/action-setup` is given `package_json_file: apps/web/package.json` and takes the pnpm version from `packageManager`. The workflow sets `permissions: contents: read`, cancels superseded runs per ref and has a timeout on every job. Running today: fmt, clippy, `cargo test`, web lint, typecheck and test, e2e typecheck and the Playwright smoke test (the `e2e` job starts `next dev` through the Playwright `webServer`). Left as `# TODO` lines in the file until their task lands: `wasm-pack test` and the web `wasm` step (0.3), `cargo llvm-cov` thresholds, web `--coverage`, the generated-types diff, and the MongoDB service with the API start-up for `e2e` (Phase 1).
+
+`.gitattributes` forces LF line endings so `prettier --check` gives the same result on Windows and on the runner.
 
 ### deploy-api.yml (push to `main`, after CI passes)
 1. Build the Docker image (below) with `docker/build-push-action`, using GitHub Actions cache.

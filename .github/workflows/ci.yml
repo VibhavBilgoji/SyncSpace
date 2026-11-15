@@ -1,0 +1,84 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # TODO(phase 1): add a mongo:7 service and MONGODB_URI once integration tests need it.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      # TODO(task 0.3): cargo install wasm-pack --locked && wasm-pack test --node crates/sync-crdt
+      # TODO(phase 1): cargo llvm-cov -p sync-crdt --fail-under-lines 90
+      # TODO(phase 1): cargo llvm-cov -p server --fail-under-lines 75
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm --dir apps/web install --frozen-lockfile
+      # TODO(task 0.3): pnpm --dir apps/web wasm (needs the wasm32 target and wasm-pack)
+      - run: pnpm --dir apps/web lint
+      - run: pnpm --dir apps/web typecheck
+      - run: pnpm --dir apps/web test
+      # TODO(phase 1): pnpm --dir apps/web test --coverage (70% on src/lib and src/components)
+      # TODO(phase 1): cargo run -p server --bin gen-types && git diff --exit-code apps/web/src/types/generated
+
+  e2e:
+    needs: [rust, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # TODO(phase 1): mongo:7 service, build and start the API, wait for /healthz.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            apps/web/pnpm-lock.yaml
+            e2e/pnpm-lock.yaml
+      - run: pnpm --dir apps/web install --frozen-lockfile
+      - run: pnpm --dir e2e install --frozen-lockfile
+      - run: pnpm --dir e2e typecheck
+      - run: pnpm --dir e2e exec playwright install --with-deps chromium firefox
+      - run: pnpm --dir e2e test
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          if-no-files-found: ignore
