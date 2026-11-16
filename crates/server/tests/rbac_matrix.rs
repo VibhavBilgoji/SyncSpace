@@ -25,8 +25,7 @@ use server::rbac::{Access, Role};
 /// it also adds a fixture, and the entry here stops mattering.
 const NOT_BUILT_YET: &[&str] = &[
     "/auth/ws-ticket",
-    "/workspaces/{wid}/documents",
-    "/documents/",
+    "/documents/{id}/versions",
     "/workspaces/{wid}/boards",
     "/boards/",
     "/tasks/",
@@ -40,6 +39,8 @@ struct Ctx {
     target: Account,
     /// A registered account that is in no workspace, for "add this member".
     spare: Account,
+    /// A document of the workspace, for the routes under `/documents/{id}`.
+    doc_hex: String,
 }
 
 /// What a route needs to be called successfully.
@@ -112,6 +113,26 @@ fn fixture(key: &str) -> Option<Fixture> {
             ok: 204,
             body: none,
         },
+        "GET /workspaces/{wid}/documents" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "POST /workspaces/{wid}/documents" => Fixture {
+            ok: 201,
+            body: |_| Some(json!({"title": "Matrix document"})),
+        },
+        "GET /documents/{id}" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "PATCH /documents/{id}" => Fixture {
+            ok: 200,
+            body: |_| Some(json!({"title": "Renamed document"})),
+        },
+        "DELETE /documents/{id}" => Fixture {
+            ok: 204,
+            body: none,
+        },
         _ => return None,
     })
 }
@@ -161,10 +182,21 @@ async fn workspace_for_a_case(app: &TestApp) -> (TestWorkspace<'_>, Ctx) {
         .await;
     let target = workspace.members[3].1.clone();
     let spare = app.account("Spare").await;
+    let record = server::documents::new_record(
+        workspace.id,
+        workspace.owner.id,
+        "Matrix document".to_string(),
+        "📄".to_string(),
+    )
+    .unwrap();
+    server::db::documents::insert(&app.db, &record)
+        .await
+        .unwrap();
     let ctx = Ctx {
         workspace_hex: workspace.hex(),
         target,
         spare,
+        doc_hex: record.id.to_hex(),
     };
     (workspace, ctx)
 }
@@ -200,7 +232,8 @@ async fn every_route_gives_every_kind_of_caller_the_documented_status() {
             let account = caller_account(caller, &workspace, &outsider);
             let path = format!("/api/v1{}", spec.path)
                 .replace("{wid}", &ctx.workspace_hex)
-                .replace("{uid}", &ctx.target.id.to_hex());
+                .replace("{uid}", &ctx.target.id.to_hex())
+                .replace("{id}", &ctx.doc_hex);
 
             let (status, body) = app
                 .call(spec.method, &path, account, (fixture.body)(&ctx))
@@ -241,7 +274,8 @@ async fn a_refused_call_changes_nothing() {
             let before = workspace.stored().await;
             let path = format!("/api/v1{}", spec.path)
                 .replace("{wid}", &ctx.workspace_hex)
-                .replace("{uid}", &ctx.target.id.to_hex());
+                .replace("{uid}", &ctx.target.id.to_hex())
+                .replace("{id}", &ctx.doc_hex);
             let (status, _) = app
                 .call(
                     spec.method,
@@ -277,6 +311,11 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "POST /workspaces/{wid}/members",
         "PATCH /workspaces/{wid}/members/{uid}",
         "DELETE /workspaces/{wid}/members/{uid}",
+        "GET /workspaces/{wid}/documents",
+        "POST /workspaces/{wid}/documents",
+        "GET /documents/{id}",
+        "PATCH /documents/{id}",
+        "DELETE /documents/{id}",
     ];
     let with_fixture: BTreeSet<String> = probes
         .iter()

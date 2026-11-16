@@ -23,12 +23,14 @@ use server::workspaces::handlers::{MemberResponse, SummaryResponse, WorkspaceRes
 
 /// The request bodies are documented next to their endpoints in `API.md` section 2, not in the
 /// "Shared types" block of section 4.
-const REQUEST_TYPES: [&str; 6] = [
+const REQUEST_TYPES: [&str; 8] = [
     "AddMemberRequest",
     "ChangeRoleRequest",
+    "CreateDocumentRequest",
     "CreateWorkspaceRequest",
     "LoginRequest",
     "RegisterRequest",
+    "UpdateDocumentRequest",
     "UpdateWorkspaceRequest",
 ];
 

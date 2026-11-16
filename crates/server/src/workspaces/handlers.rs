@@ -26,7 +26,7 @@ use crate::error::ApiError;
 use crate::extract::ApiJson;
 use crate::rbac::{Role, parse_id, require_role};
 
-fn iso(date: DateTime) -> String {
+pub(crate) fn iso(date: DateTime) -> String {
     date.try_to_rfc3339_string().unwrap_or_default()
 }
 
