@@ -166,4 +166,10 @@ root Y.Map "blocks": block_id -> Y.Map {
 root Y.Map "meta": { schema: 1 }
 ```
 
-Blocks render sorted by `(order, block_id)`. Moving a block changes its `order` (midpoint of neighbours). Deleting a block removes its key. New block ids are random 12-character base62 strings created by the client.
+Blocks render sorted by `(order, block_id)`. Moving a block changes its `order` (midpoint of neighbours). Deleting a block removes its key. New block ids are random 12-character base62 strings created by the client (12 ASCII letters or digits; the crate validates the format, it never generates ids).
+
+Rules the server enforces on every incoming update (`sync-crdt`, `validate`):
+- Only the two root types `blocks` and `meta` exist. `meta` holds only `schema: 1`, written once by `Document::initialise` when a document is created.
+- At most 2000 blocks; each block has exactly the fields `type`, `order`, `text`, `props` (`props` may be missing), a valid id, one of the six types, a finite `order`, and a `text` of at most 100 000 UTF-16 units.
+- `props` may hold only `language` (string, at most 32 characters), `checked` (boolean) and `tone` (one of `info`, `success`, `warning`, `danger`); anything else is rejected. A local `set_props` is stricter: the key must also belong to the block's type (`language` for CODE, `checked` for CHECKLIST, `tone` for CALLOUT), and `set_type` drops the properties of the old type. After a concurrent type change and property change a block can still hold a property of its old type; that is accepted and the projection shows only the properties of the block's type.
+- Block `order` ties are broken by `block_id`. Gaps below `1e-9` count as no room (`renumber` rewrites the orders to 1, 2, 3, ...).

@@ -114,6 +114,8 @@ Binary frames follow the y-sync protocol (`yrs::sync`), first varint is the mess
 
 Text frames are JSON `{"type": ..., ...}`.
 
+An update that builds on changes the server does not have (it arrived before the update it depends on) is not applied; the server answers with its own SyncStep1 and keeps the socket open, and the client replies with the diff. Any other frame or update the server cannot handle closes the socket with 1008.
+
 | Type | Direction | Payload | Purpose |
 |---|---|---|---|
 | `PING` / `PONG` | client -> server / reply | `{t}` | every 20 s; the client shows round-trip latency ("5ms") |

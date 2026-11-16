@@ -1,0 +1,4 @@
+# Two compile jobs at a time. A full build (the Wasm package and the Playwright browsers share the
+# machine with it) once ran the dev laptop out of memory; this trades some build time for that.
+[build]
+jobs = 2
