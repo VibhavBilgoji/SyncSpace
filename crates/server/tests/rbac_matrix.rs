@@ -268,7 +268,10 @@ async fn a_refused_call_changes_nothing() {
     let app = TestApp::real().await;
     for spec in api_route_table()
         .iter()
-        .filter(|s| s.method != "GET" && matches!(s.access, Access::Member(_)))
+        // A viewer is allowed on routes that need only VIEWER (the ws-ticket POST changes nothing).
+        .filter(|s| {
+            s.method != "GET" && matches!(s.access, Access::Member(role) if role != Role::Viewer)
+        })
     {
         let fixture = fixture(&key(spec)).unwrap();
         for caller in [Caller::Outsider, Caller::Member(Role::Viewer)] {
