@@ -1,3 +1,7 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
 
-/* Design tokens from docs/UI_SPEC.md are added in Phase 1. */
+body {
+  background: var(--canvas);
+  color: var(--text);
+}

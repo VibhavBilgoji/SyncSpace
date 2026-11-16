@@ -1,0 +1,71 @@
+/* Design tokens from docs/UI_SPEC.md section 1. Components use these names, never raw hex. */
+:root {
+  --canvas: #090a0f;
+  --surface: #12141a;
+  --elevated: #1a1d26;
+  --hover: #222634;
+  --border: #232733;
+  --indigo: #6366f1;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --violet: #a855f7;
+  --text: #e6e8ef;
+  --text-muted: #8a90a2;
+  --text-faint: #5b6172;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-hover: var(--hover);
+  --color-border: var(--border);
+  --color-indigo: var(--indigo);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-violet: var(--violet);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-dialog: 10px;
+
+  --text-display-xl: 32px;
+  --text-display-xl--line-height: 40px;
+  --text-display-xl--font-weight: 700;
+  --text-heading-lg: 22px;
+  --text-heading-lg--line-height: 30px;
+  --text-heading-lg--font-weight: 600;
+  --text-heading-md: 17px;
+  --text-heading-md--line-height: 24px;
+  --text-heading-md--font-weight: 600;
+  --text-body-md: 15px;
+  --text-body-md--line-height: 24px;
+  --text-body-md--font-weight: 400;
+  --text-ui-base: 14px;
+  --text-ui-base--line-height: 20px;
+  --text-ui-base--font-weight: 500;
+  --text-ui-sm: 13px;
+  --text-ui-sm--line-height: 18px;
+  --text-ui-sm--font-weight: 400;
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-micro--font-weight: 600;
+  --text-micro--letter-spacing: 0.06em;
+  --text-mono-code: 13px;
+  --text-mono-code--line-height: 20px;
+  --text-mono-code--font-weight: 400;
+}
+
+/* Focus: 2 px indigo ring, offset 2 px. */
+:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: 2px;
+}
