@@ -302,6 +302,30 @@ async fn a_user_who_was_removed_after_asking_for_a_ticket_is_closed_with_4003() 
 }
 
 #[tokio::test]
+async fn a_refused_connection_does_not_keep_the_room_in_memory() {
+    let app = TestApp::real().await;
+    let room = Room::new(&app).await;
+    let ticket = ticket_for(&app, room.editor(), "doc", &room.doc_id).await;
+    workspaces::remove_member(&app.db, room.workspace.id, room.editor().id)
+        .await
+        .unwrap()
+        .unwrap();
+    let stream = connect_raw(&app, &room.doc_id, Some(&ticket), Some(ALLOWED_ORIGIN))
+        .await
+        .unwrap();
+    let client = WsClient {
+        stream,
+        doc: Document::new(1).unwrap(),
+    };
+    expect_close_code(client, CLOSE_FORBIDDEN).await;
+    assert_eq!(
+        app.hub.open_rooms(),
+        0,
+        "the room loaded for the refused user is released"
+    );
+}
+
+#[tokio::test]
 async fn a_document_that_does_not_exist_closes_with_4004() {
     let app = TestApp::real().await;
     let room = Room::new(&app).await;

@@ -198,13 +198,20 @@ impl Hub {
         db: &Database,
         room: &DocRoom,
     ) -> Result<bool, mongodb::error::Error> {
+        // One flush of a room at a time: see `DocRoom::flush_gate`.
+        let _gate = room.flush_gate().lock().await;
         if !room.take_dirty() {
             return Ok(false);
         }
+        // If this future is dropped before the write is confirmed (task aborted, server going
+        // down), the changes are marked again instead of being forgotten.
+        let mut guard = DirtyGuard { room, armed: true };
         let (snapshot, blocks) = room.state();
         let records: Vec<BlockRecord> = blocks.iter().map(BlockRecord::from).collect();
-        match documents::write_snapshot(db, room.id, snapshot, &records).await {
-            Ok(Some((revision, saved_at))) => {
+        let result = documents::write_snapshot(db, room.id, snapshot, &records).await?;
+        guard.armed = false;
+        match result {
+            Some((revision, saved_at)) => {
                 self.metrics.snapshot_write();
                 room.broadcast(Outgoing::Json(
                     ServerFrame::SnapshotSaved {
@@ -216,11 +223,7 @@ impl Hub {
                 Ok(true)
             }
             // The document was deleted while it was open: nothing to save.
-            Ok(None) => Ok(false),
-            Err(error) => {
-                room.mark_dirty();
-                Err(error)
-            }
+            None => Ok(false),
         }
     }
 
@@ -265,13 +268,17 @@ impl Hub {
     /// 1001 so that the graceful shutdown of the HTTP server can finish (it waits for open
     /// connections).
     pub async fn shutdown(&self, db: &Database) {
-        let written = self.flush_all(db).await;
-        tracing::info!(written, "final snapshots written");
-        for room in self.open_room_list() {
-            room.broadcast(Outgoing::Close {
-                code: CLOSE_GOING_AWAY,
-                reason: "server shutting down",
-            });
+        // Twice: the HTTP server still accepts connections while the first flush runs, and a
+        // room opened in that window must be written and sent away too.
+        for _ in 0..2 {
+            let written = self.flush_all(db).await;
+            tracing::info!(written, "final snapshots written");
+            for room in self.open_room_list() {
+                room.broadcast(Outgoing::Close {
+                    code: CLOSE_GOING_AWAY,
+                    reason: "server shutting down",
+                });
+            }
         }
     }
 
@@ -289,5 +296,19 @@ impl Hub {
     /// How many rooms are open (for tests).
     pub fn open_rooms(&self) -> usize {
         self.rooms().len()
+    }
+}
+
+/// Puts the dirty flag back unless the write was confirmed.
+struct DirtyGuard<'a> {
+    room: &'a DocRoom,
+    armed: bool,
+}
+
+impl Drop for DirtyGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.room.mark_dirty();
+        }
     }
 }

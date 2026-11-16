@@ -289,3 +289,48 @@ async fn the_metrics_page_shows_counts_and_nothing_else() {
     assert!(!body.contains(&fx.doc_id), "no identifiers on the page");
     assert!(!body.contains("Notes"), "no titles on the page");
 }
+
+#[tokio::test]
+async fn a_flush_that_is_dropped_mid_write_leaves_the_document_dirty() {
+    let app = TestApp::real().await;
+    let fx = Fixture::new(&app).await;
+    let mut client = fx.join(&app, 20).await;
+    type_text(&mut client, "precious").await;
+    wait_until("the edit to be applied", || async {
+        app.hub.metrics.edits() >= 1
+    })
+    .await;
+    let room = app.hub.room(&app.db, fx.doc).await.unwrap();
+
+    // Polled exactly once, then dropped while the MongoDB write is pending.
+    {
+        use futures_util::FutureExt;
+        assert!(
+            app.hub.flush_room(&app.db, &room).now_or_never().is_none(),
+            "the write cannot finish in a single poll"
+        );
+    }
+    assert!(room.is_dirty(), "the edit must not be forgotten");
+
+    assert!(app.hub.flush_room(&app.db, &room).await.unwrap());
+    assert_eq!(fx.stored(&app).await.1, "precious");
+}
+
+#[tokio::test]
+async fn two_flushes_at_once_write_the_latest_state_last() {
+    let app = TestApp::real().await;
+    let fx = Fixture::new(&app).await;
+    let mut client = fx.join(&app, 21).await;
+    type_text(&mut client, "one").await;
+    wait_until("the first edit", || async { app.hub.metrics.edits() >= 1 }).await;
+    let room = app.hub.room(&app.db, fx.doc).await.unwrap();
+    let (a, b) = tokio::join!(app.hub.flush_room(&app.db, &room), async {
+        type_text(&mut client, "two").await;
+        wait_until("the second edit", || async { app.hub.metrics.edits() >= 2 }).await;
+        app.hub.flush_room(&app.db, &room).await
+    });
+    a.unwrap();
+    b.unwrap();
+    app.hub.flush_room(&app.db, &room).await.unwrap();
+    assert_eq!(fx.stored(&app).await.1, "onetwo");
+}

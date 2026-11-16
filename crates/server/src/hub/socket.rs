@@ -115,12 +115,18 @@ async fn authorise(
             return Err((CLOSE_INTERNAL, "internal error"));
         }
     };
-    let granted = require_role(&state.db, room.workspace_id, ticket.user, Role::Viewer)
-        .await
-        .map_err(|error| match error {
-            ApiError::NotFound(_) | ApiError::Forbidden(_) => (CLOSE_FORBIDDEN, "forbidden"),
-            _ => (CLOSE_INTERNAL, "internal error"),
-        })?;
+    let granted = require_role(&state.db, room.workspace_id, ticket.user, Role::Viewer).await;
+    let granted = match granted {
+        Ok(granted) => granted,
+        Err(error) => {
+            // The room was loaded for this attempt: let go of it so a refused user cannot pin it.
+            state.hub.release(&state.db, &room).await;
+            return Err(match error {
+                ApiError::NotFound(_) | ApiError::Forbidden(_) => (CLOSE_FORBIDDEN, "forbidden"),
+                _ => (CLOSE_INTERNAL, "internal error"),
+            });
+        }
+    };
     Ok(Identity {
         room,
         role: granted.role,
@@ -312,19 +318,25 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
     let mut outgoing = room.subscribe();
     let mut room = room;
     let mut joined = state.hub.try_join(&room);
-    if !joined && let Ok(fresh) = state.hub.room(&state.db, doc_id).await {
-        room = fresh;
-        outgoing = room.subscribe();
-        joined = state.hub.try_join(&room);
+    let mut gone = false;
+    if !joined {
+        match state.hub.room(&state.db, doc_id).await {
+            Ok(fresh) => {
+                room = fresh;
+                outgoing = room.subscribe();
+                joined = state.hub.try_join(&room);
+            }
+            Err(RoomLookup::Missing) => gone = true,
+            Err(RoomLookup::Failed(_)) => {}
+        }
     }
     if !joined {
-        close(
-            &mut socket,
-            CLOSE_INTERNAL,
-            "internal error",
-            config.send_timeout,
-        )
-        .await;
+        let (code, reason) = if gone {
+            (CLOSE_DOCUMENT_GONE, "document not found")
+        } else {
+            (CLOSE_INTERNAL, "internal error")
+        };
+        close(&mut socket, code, reason, config.send_timeout).await;
         return;
     }
     connection.room = room.clone();

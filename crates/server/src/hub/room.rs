@@ -47,6 +47,10 @@ pub struct DocRoom {
     tx: broadcast::Sender<Outgoing>,
     active: AtomicU32,
     dirty: AtomicBool,
+    /// Serialises snapshots of this room (not the document lock): held across the encode and the
+    /// MongoDB write, so two flushes can neither lose a failed write nor let an older state
+    /// overwrite a newer one.
+    flush_gate: tokio::sync::Mutex<()>,
     max_state_bytes: usize,
     metrics: Arc<Metrics>,
 }
@@ -70,6 +74,7 @@ impl DocRoom {
             tx,
             active: AtomicU32::new(0),
             dirty: AtomicBool::new(false),
+            flush_gate: tokio::sync::Mutex::new(()),
             max_state_bytes,
             metrics,
         })
@@ -172,6 +177,10 @@ impl DocRoom {
     /// Puts the flag back (a snapshot write failed).
     pub fn mark_dirty(&self) {
         self.dirty.store(true, Ordering::SeqCst);
+    }
+
+    pub fn flush_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.flush_gate
     }
 
     pub fn metrics(&self) -> &Metrics {
