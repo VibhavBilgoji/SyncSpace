@@ -2,11 +2,14 @@
 //! integration tests build the same app from them.
 
 pub mod app;
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod extract;
 pub mod health;
+pub mod rbac;
 pub mod spike;
 pub mod telemetry;
+pub mod workspaces;

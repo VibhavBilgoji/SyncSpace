@@ -17,10 +17,15 @@ use std::time::Duration;
 
 use axum::Router;
 use mongodb::Database;
+use mongodb::bson::DateTime;
+use mongodb::bson::oid::ObjectId;
 use server::app::{self, AppState};
-use server::auth::AuthService;
+use server::auth::{AuthService, session};
 use server::config::Config;
 use server::db;
+use server::db::users::{self, User};
+use server::db::workspaces::{self, MemberDoc, Workspace};
+use server::rbac::Role;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -264,6 +269,157 @@ impl Drop for TestApp {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
+    }
+}
+
+/// A signed-in user created without going through registration, so a test that only needs
+/// users does not pay for password hashing.
+#[derive(Clone, Debug)]
+pub struct Account {
+    pub id: ObjectId,
+    pub name: String,
+    pub email: String,
+    /// The `ss_session` token.
+    pub token: String,
+}
+
+/// Status and JSON body of an answer (`Value::Null` when there is no body).
+pub type Answer = (u16, serde_json::Value);
+
+impl TestApp {
+    /// Inserts a user and signs a session for them.
+    pub async fn account(&self, name: &str) -> Account {
+        use base64::Engine;
+        let id = ObjectId::new();
+        let email = format!("{}@example.com", uuid::Uuid::new_v4().simple());
+        let user = User {
+            id,
+            email: email.clone(),
+            name: name.to_string(),
+            password_hash: "not a real hash".to_string(),
+            created_at: DateTime::now(),
+        };
+        users::insert(&self.db, &user).await.unwrap();
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(KEY_A)
+            .unwrap();
+        let token = session::issue(&key, id, session::now()).unwrap();
+        Account {
+            id,
+            name: name.to_string(),
+            email,
+            token,
+        }
+    }
+
+    /// One request. `who` is the session token, `None` for an anonymous caller.
+    pub async fn call(
+        &self,
+        method: &str,
+        path: &str,
+        who: Option<&Account>,
+        body: Option<serde_json::Value>,
+    ) -> Answer {
+        let method = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
+        let mut request = self.client.request(method, self.url(path));
+        if let Some(account) = who {
+            request = request.header("Cookie", format!("ss_session={}", account.token));
+        }
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request.send().await.unwrap();
+        let status = response.status().as_u16();
+        let bytes = response.bytes().await.unwrap();
+        let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, body)
+    }
+
+    /// Every `audit_logs` row of a workspace, oldest first.
+    pub async fn audit_rows(&self, workspace: ObjectId) -> Vec<mongodb::bson::Document> {
+        use futures_util::TryStreamExt;
+        self.db
+            .collection::<mongodb::bson::Document>("audit_logs")
+            .find(mongodb::bson::doc! { "workspace_id": workspace })
+            .sort(mongodb::bson::doc! { "_id": 1 })
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap()
+    }
+
+    pub async fn audit_row_count(&self) -> u64 {
+        self.db
+            .collection::<mongodb::bson::Document>("audit_logs")
+            .count_documents(mongodb::bson::doc! {})
+            .await
+            .unwrap()
+    }
+}
+
+/// A workspace written straight to the database: an owner (ADMIN) plus any members a test adds.
+/// `TestWorkspace::new(&app).await.with_member(Role::Viewer).await`, as `docs/TESTING.md` asks.
+pub struct TestWorkspace<'a> {
+    app: &'a TestApp,
+    pub id: ObjectId,
+    pub owner: Account,
+    /// The members added with [`TestWorkspace::with_member`], in order.
+    pub members: Vec<(Role, Account)>,
+}
+
+impl<'a> TestWorkspace<'a> {
+    pub async fn new(app: &'a TestApp) -> Self {
+        let owner = app.account("Olivia Owner").await;
+        let workspace = Workspace::new(
+            "Test workspace".to_string(),
+            format!("ws-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]),
+            owner.id,
+        );
+        workspaces::insert(&app.db, &workspace).await.unwrap();
+        Self {
+            app,
+            id: workspace.id,
+            owner,
+            members: Vec::new(),
+        }
+    }
+
+    pub async fn with_member(mut self, role: Role) -> Self {
+        let account = self.app.account(&format!("{role:?} member")).await;
+        let member = MemberDoc {
+            user_id: account.id,
+            role,
+            joined_at: DateTime::now(),
+        };
+        assert!(
+            workspaces::add_member(&self.app.db, self.id, &member)
+                .await
+                .unwrap()
+        );
+        self.members.push((role, account));
+        self
+    }
+
+    /// The first member added with this role.
+    pub fn member(&self, role: Role) -> &Account {
+        &self
+            .members
+            .iter()
+            .find(|(r, _)| *r == role)
+            .unwrap_or_else(|| panic!("no {role:?} member in this workspace"))
+            .1
+    }
+
+    pub fn hex(&self) -> String {
+        self.id.to_hex()
+    }
+
+    pub async fn stored(&self) -> Workspace {
+        workspaces::find(&self.app.db, self.id)
+            .await
+            .unwrap()
+            .unwrap()
     }
 }
 

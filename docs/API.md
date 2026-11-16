@@ -12,8 +12,8 @@ Base path for REST: `/api/v1`. JSON bodies use `snake_case`. Ids are 24-characte
 |---|---|---|
 | 400 | `BAD_REQUEST` | malformed JSON or id |
 | 401 | `UNAUTHORIZED` | missing or expired session |
-| 403 | `FORBIDDEN` | not a member, or role too low |
-| 404 | `NOT_FOUND` | unknown resource, or a resource in a workspace the caller is not in (do not leak existence) |
+| 403 | `FORBIDDEN` | the caller is a member but their role is too low |
+| 404 | `NOT_FOUND` | unknown resource, or a resource in a workspace the caller is not a member of (the same answer for both, so existence does not leak) |
 | 409 | `CONFLICT` | duplicate email or slug, member already present, owner change attempt |
 | 422 | `VALIDATION` | field rules failed; `details` maps field to message |
 | 405 | `METHOD_NOT_ALLOWED` | the path exists but not for this HTTP method |
@@ -44,14 +44,18 @@ Role column: minimum role needed in the workspace the resource belongs to.
 ### Workspaces and members
 | Method and path | Role | Body | Response |
 |---|---|---|---|
-| `GET /workspaces` | user | | `[WorkspaceSummary]` with the caller's role and counts |
-| `POST /workspaces` | user | `{name, slug}` | 201 `Workspace` |
+| `GET /workspaces` | user | | `[WorkspaceSummary]` with the caller's role and counts, by name |
+| `POST /workspaces` | user | `{name, slug}` | 201 `Workspace` (the caller is the owner and an ADMIN member); 409 for a taken slug; 422 for every field that breaks a rule |
 | `GET /workspaces/:wid` | VIEWER | | `Workspace` |
-| `PATCH /workspaces/:wid` | ADMIN | `{name?, slug?}` | `Workspace` |
-| `GET /workspaces/:wid/members` | VIEWER | | `[Member]` with name, email, role, joined_at, is_owner |
-| `POST /workspaces/:wid/members` | ADMIN | `{email, role}` | 201 `Member`; 404 if no account has that email; audit MEMBER_ADD |
-| `PATCH /workspaces/:wid/members/:uid` | ADMIN | `{role}` | `Member`; 409 for the owner; audit ROLE_CHANGE; live sessions updated |
-| `DELETE /workspaces/:wid/members/:uid` | ADMIN | | 204; 409 for the owner; audit MEMBER_REMOVE; sessions closed with 4003 |
+| `PATCH /workspaces/:wid` | ADMIN | `{name?, slug?}` (at least one) | `Workspace`; 409 for a taken slug |
+| `GET /workspaces/:wid/members` | VIEWER | | `[Member]` with name, email, role, joined_at, is_owner; the owner first, then in join order |
+| `POST /workspaces/:wid/members` | ADMIN | `{email, role}` | 201 `Member`; 404 if no account has that email; 409 if already a member; audit MEMBER_ADD |
+| `PATCH /workspaces/:wid/members/:uid` | ADMIN | `{role}` | `Member`; 409 for the owner; 404 if not a member; audit ROLE_CHANGE (none when the role is already that one); live sessions updated |
+| `DELETE /workspaces/:wid/members/:uid` | ADMIN | | 204; 409 for the owner; 404 if not a member; audit MEMBER_REMOVE; the user leaves the assignees of the workspace's tasks; sessions closed with 4003 |
+
+**Workspace rules.** `name`: trimmed, 1 to 60 characters, no control characters. `slug`: exactly `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$` (3 to 40 characters); it is never changed for the caller, so `Team` is rejected, not turned into `team`. A path id that is not 24 hex characters is 400. A caller who is not a member of `:wid` gets the same 404 as for an id that does not exist; a member below the route's role gets 403, and the role is checked before the body, so a refused caller learns nothing about their body. The owner is an ADMIN member who cannot be demoted or removed, by anyone. Any other ADMIN may demote or remove themselves. A member email is matched like a login email (trimmed, case-insensitive). Creating or editing a workspace is not audited; adding, removing and changing members is, one row each, only when something changed.
+
+**Not yet live.** `ROLE_CHANGED` and the 4003 close need the WebSocket hub (task 2.3). Until then nothing is open to update, and REST re-reads membership on every request, so a removed or demoted user is refused at once.
 
 ### Documents
 | Method and path | Role | Body | Response |
@@ -155,6 +159,8 @@ type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 type ChangeType = "AUTOMATIC" | "MANUAL" | "RESTORE";
 
 interface User { id: string; name: string; email: string }
+interface Workspace { id: string; name: string; slug: string; owner_id: string; role: Role /* the caller's */; created_at: string; updated_at: string }
+interface WorkspaceSummary { id: string; name: string; slug: string; role: Role; is_owner: boolean; member_count: number; document_count: number; board_count: number }
 interface Member { user_id: string; name: string; email: string; role: Role; joined_at: string; is_owner: boolean }
 interface Block { block_id: string; type: BlockType; content: string; properties: Record<string, unknown>; order: number }
 interface Task { id: string; board_id: string; title: string; description: string; status: Status; priority: Priority;

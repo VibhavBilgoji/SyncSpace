@@ -14,7 +14,7 @@ use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, Method, Request, Response, header};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{MethodRouter, delete, get, patch, post};
 use mongodb::Database;
 use tokio::net::TcpListener;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -26,6 +26,7 @@ use crate::auth::{self, AuthService};
 use crate::config::Config;
 use crate::error::ApiError;
 use crate::health;
+use crate::rbac::Access;
 
 /// Largest request body on REST routes (`docs/ARCHITECTURE.md` section 5). WebSocket frames
 /// have their own, larger limit.
@@ -61,9 +62,99 @@ pub fn routes() -> Router<AppState> {
         .method_not_allowed_fallback(method_not_allowed)
 }
 
-/// Everything under `/api/v1`.
+/// One REST route: what it is, who may call it, and the handler.
+///
+/// The router under `/api/v1` is built from [`api_route_table`], so a route cannot exist without
+/// an entry here, and the RBAC matrix test (`tests/rbac_matrix.rs`) walks the same table: it
+/// checks every entry against the Role column of `docs/API.md` and calls it as each kind of
+/// caller. `access` is what the route promises; the handler enforces it with
+/// [`crate::rbac::require_role`] and the test proves the two agree.
+pub struct RouteSpec {
+    pub method: &'static str,
+    /// Relative to `/api/v1`, in axum syntax (`{wid}`).
+    pub path: &'static str,
+    pub access: Access,
+    handler: fn() -> MethodRouter<AppState>,
+}
+
+impl RouteSpec {
+    const fn new(
+        method: &'static str,
+        path: &'static str,
+        access: Access,
+        handler: fn() -> MethodRouter<AppState>,
+    ) -> Self {
+        Self {
+            method,
+            path,
+            access,
+            handler,
+        }
+    }
+}
+
+/// Every REST route under `/api/v1`.
+pub fn api_route_table() -> Vec<RouteSpec> {
+    use crate::rbac::Role::{Admin, Viewer};
+    use crate::workspaces::handlers as w;
+    vec![
+        RouteSpec::new("POST", "/auth/register", Access::Public, || {
+            post(auth::handlers::register)
+        }),
+        RouteSpec::new("POST", "/auth/login", Access::Public, || {
+            post(auth::handlers::login)
+        }),
+        RouteSpec::new("POST", "/auth/logout", Access::User, || {
+            post(auth::handlers::logout)
+        }),
+        RouteSpec::new("GET", "/auth/me", Access::User, || get(auth::handlers::me)),
+        RouteSpec::new("GET", "/workspaces", Access::User, || {
+            get(w::list_workspaces)
+        }),
+        RouteSpec::new("POST", "/workspaces", Access::User, || {
+            post(w::create_workspace)
+        }),
+        RouteSpec::new("GET", "/workspaces/{wid}", Access::Member(Viewer), || {
+            get(w::get_workspace)
+        }),
+        RouteSpec::new("PATCH", "/workspaces/{wid}", Access::Member(Admin), || {
+            patch(w::patch_workspace)
+        }),
+        RouteSpec::new(
+            "GET",
+            "/workspaces/{wid}/members",
+            Access::Member(Viewer),
+            || get(w::list_members),
+        ),
+        RouteSpec::new(
+            "POST",
+            "/workspaces/{wid}/members",
+            Access::Member(Admin),
+            || post(w::add_member),
+        ),
+        RouteSpec::new(
+            "PATCH",
+            "/workspaces/{wid}/members/{uid}",
+            Access::Member(Admin),
+            || patch(w::change_member_role),
+        ),
+        RouteSpec::new(
+            "DELETE",
+            "/workspaces/{wid}/members/{uid}",
+            Access::Member(Admin),
+            || delete(w::remove_member),
+        ),
+    ]
+}
+
+/// Everything under `/api/v1`, built from [`api_route_table`]. Entries with the same path (one
+/// per method) merge into one route.
 fn api_routes() -> Router<AppState> {
-    Router::new().nest("/auth", auth::routes())
+    api_route_table()
+        .into_iter()
+        .fold(Router::new(), |router, spec| {
+            router.route(spec.path, (spec.handler)())
+        })
 }
 
 /// The production app: routes plus middleware.
