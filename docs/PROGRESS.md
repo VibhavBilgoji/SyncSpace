@@ -7,7 +7,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | Phase | Status | Tag |
 |---|---|---|
 | 0 Bootstrap and spike | complete | `phase-0` on `e2bb9b1` |
-| 1 Accounts, workspaces, design system | in progress (1.1 and 1.2 done, 1.3 implemented, CI pending) | |
+| 1 Accounts, workspaces, design system | in progress (1.1, 1.2, 1.3 done; 1.4 to 1.6 planned for Monday) | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
 | 4 Version history | not started | |
@@ -27,7 +27,8 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2026-11-16 | 1.1 Server skeleton | done (PR #5, green, merged as `dfd11ab`) | 59 new: 22 unit (config 12, error 6, db 4), 24 API integration, 9 index integration, 4 process-level; all pass locally on MongoDB 8.0.23 | Config, tracing, `/healthz`, MongoDB connection and indexes, error format, 256 KiB body limit, CORS, panic net, graceful shutdown. Each protection was disabled in turn and a test failed every time. CI now has a `mongo:8.0` service. See "MongoDB version alignment" |
 | 2026-11-16 | Coverage gates and ADR-011 | done (PR #6, green, merged as `144e57e`) | 0 (CI and docs) | `sync-crdt` 99.07% and `server` 88.37% line coverage, both gates blocking from now. Testcontainers question closed by ADR-011 |
 | 2026-11-16 | 1.2 Auth | done (PR #7, `rust`, `web` and `e2e` green, merged as `64fa51e`) | 66 new: 37 unit (password 7, session 12, cookie 9, validation 9) and 29 integration against MongoDB 8.0.23; 1.1 tests unchanged | Register, login, logout, `me`; argon2id; HS256 JWT in an `HttpOnly` cookie; `AuthUser` extractor. Ten protections were disabled in turn and a test failed every time. A real-binary walkthrough with `curl` and a cookie jar passed and its log held no secret. GitGuardian flagged the fake passwords in the test fixtures; they were replaced with plain-word phrases, the old commit still holds them, and the findings were marked as false positives in the GitGuardian dashboard before the merge |
-| 2026-11-16 | 1.3 Workspaces, members, RBAC, audit writer | implemented, **CI run pending** | 50 new: 15 unit (rbac 4, audit 5, workspace validation 5, db 1) and 35 integration against MongoDB 8.0.23 (`workspaces.rs` 12, `members.rs` 17, `rbac_matrix.rs` 6) | Eight `/workspaces` endpoints, `rbac::require_role`, `audit::record` for MEMBER_ADD, MEMBER_REMOVE and ROLE_CHANGE, and a route table the router is built from. Nine protections were disabled in turn (owner guard in the handler and in the database update, role check, non-member 404, audit insert, audit content, duplicate-member filter, assignment cleanup, the table against `API.md`) and a test failed every time. Server line coverage 94.51%. A real-binary walkthrough (register two users, create, add, refuse, promote, list, refuse the owner, remove, 404 afterwards) passed and its log held no email, password or cookie. One full `cargo test --workspace` run failed in `rbac_matrix` at `ensure_indexes` after a 43-minute stall of the machine; the rerun passed (see open questions) |
+| 2026-11-16 | 1.3 Workspaces, members, RBAC, audit writer | done (PR #8, all four checks green, merged as `924c98f`) | 50 new: 15 unit (rbac 4, audit 5, workspace validation 5, db 1) and 35 integration against MongoDB 8.0.23 (`workspaces.rs` 12, `members.rs` 17, `rbac_matrix.rs` 6) | Eight `/workspaces` endpoints, `rbac::require_role`, `audit::record` for MEMBER_ADD, MEMBER_REMOVE and ROLE_CHANGE, and a route table the router is built from. Nine protections were disabled in turn (owner guard in the handler and in the database update, role check, non-member 404, audit insert, audit content, duplicate-member filter, assignment cleanup, the table against `API.md`) and a test failed every time. Server line coverage 94.51%. A real-binary walkthrough (register two users, create, add, refuse, promote, list, refuse the owner, remove, 404 afterwards) passed and its log held no email, password or cookie. One full `cargo test --workspace` run failed in `rbac_matrix` at `ensure_indexes` after a 43-minute stall of the machine; the rerun passed (see open questions) |
+| 2026-11-16 | Friday submission plan | done (docs only) | 0 | `docs/ROADMAP.md` rewritten for the deadline of Friday 20 November: MUST, SHOULD and post-submission lists, a server track and a web track with daily batches (about 36 h and 39 h against 48 h each), deploy on Wednesday, tests scaled to the deadline, and the trims approved by the project lead. See "Friday plan" below |
 
 ## Decisions made during implementation
 
@@ -92,7 +93,36 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - 1.3: the member list keeps the array's own order (which is join order, because members are appended) and only lifts the owner to the front. Sorting by `joined_at` was flaky: two members added in the same millisecond tie.
 - 1.3 (test harness): `tests/common` gained `TestApp::account` (inserts a user and signs a session with no password hashing), `TestApp::call`, `TestApp::audit_rows` and `TestWorkspace::new(&app).await.with_member(Role::Viewer).await`, as `TESTING.md` asks.
 
-## Open questions
+## Friday plan (written Monday 16 November, updated the same day)
+
+The full plan is `docs/ROADMAP.md`. Summary:
+
+- **State.** Tasks 0.1 to 0.3 and 1.1 to 1.3 are merged on `main` (`924c98f`). **1.4 is not merged and not started**, although the deadline message said it was; it is the first task of the server track on Monday.
+- **Two tracks, split by directory.** Server track (`crates/`, the project lead): 1.4, 2.1 to 2.4, 3.1 and 3.3 server parts, 4.1 to 4.4, 5.1, 6.1, 7.4 server part, 7.5. Web track (`apps/web/`, `e2e/`, a teammate in a parallel session): 1.5, 1.6, 2.5, 2.6, 3.1 to 3.3 web parts, 4.5, 5.2, 5.3, 6.2, 6.3, 7.4 Vercel. The web track builds against `docs/API.md` and the generated types, with typed mocks until each endpoint merges (hand-off table in the roadmap).
+- **Estimated load per track** (Mon / Tue / Wed / Thu): server 9 / 10.5 / 11.5 / 5 = **36 h**; web 9 / 7 / 11 / 12 = **39 h**; each against about 48 h available. These are estimates, not measurements; the web numbers are the least certain (only the spike page exists today). The earlier single-track estimate of 63.5 h against 48 h no longer applies: the parallel split removes the overload, and its first draft also double-counted the savings of the cut ladder (6.3 and 5.2 were each freeing as many hours as the whole task was estimated at).
+- **Deploy on Wednesday:** server on Render with Atlas (server track), web on Vercel (web track).
+- **Tests scaled.** Server logic and every permission check keep unit and integration tests; component tests for the main states; e2e only scenarios 1, 2, 3, 6 and 7. Scenarios 4, 5, 8, 9 and 10 are post-submission.
+
+## Decisions (Friday plan, Monday 16 November)
+
+- **Trims approved by the project lead:** 6.3 is the audit list with filters (JSON inspector and export are post-submission); 5.2 without filters; 6.2 members screen only (general settings and danger zone are post-submission); 3.2 without "Waiting to sync"; 3.3 reduced to "a demoted or removed user stops editing at once".
+- **Kept in full:** 2.4 with the SIGTERM flush and the metrics counters (they produce the edits/s versus writes/s number) and 4.2 automatic versions (FR15). **Re-check on Wednesday evening:** if the server track is behind, 4.2 is the first drop and the project lead decides then.
+- **Coverage:** the two Rust gates (`sync-crdt` 90%, `server` 75%) stay blocking as they are; no web coverage gate is added.
+
+## Contract changes (server track writes here when `docs/API.md` or a close code changes)
+
+(none yet)
+
+## Contract requests (web track writes here; the server track decides)
+
+(none yet)
+
+## Open questions (Friday plan)
+
+- **The web track's hours are the least certain estimate of the plan.** If the editor (2.6, 6 h) overruns on Tuesday, Wednesday's deploy day is the next to slip; the server track's spare Thursday hours can take over integration work that is blocked on the server.
+- **Who runs the e2e job when both tracks merge on the same day?** The e2e job needs the web build and the API; `ci.yml` is owned by the server track, so a failing e2e on a web PR may be waiting on a server merge. Merge server PRs first on days when a web task depends on them (the hand-off table).
+
+## Open questions (earlier)
 
 (Conflicts between docs, unclear requirements, things the team must decide.)
 
