@@ -6,6 +6,7 @@ import type {
   User,
   Workspace,
   WorkspaceSummary,
+  WsTicketResponse,
 } from "@/types/generated";
 
 export const realAuth: AuthApi = {
@@ -13,6 +14,7 @@ export const realAuth: AuthApi = {
   login: (input) => request<User>("POST", "/auth/login", input),
   logout: () => request<void>("POST", "/auth/logout"),
   me: () => request<User>("GET", "/auth/me"),
+  wsTicket: (input) => request<WsTicketResponse>("POST", "/auth/ws-ticket", input),
 };
 
 export const realWorkspaces: WorkspacesApi = {
