@@ -33,5 +33,5 @@ pub use document::Document;
 pub use error::CrdtError;
 pub use projection::Block;
 pub use schema::{BlockType, order_between};
-pub use sync::{Handled, check_state_vector, update_frame};
+pub use sync::{FrameKind, Handled, check_state_vector, frame_kind, is_empty_update, update_frame};
 pub use validate::MAX_UPDATE_BYTES;

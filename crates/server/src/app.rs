@@ -26,6 +26,7 @@ use crate::auth::{self, AuthService};
 use crate::config::Config;
 use crate::error::ApiError;
 use crate::health;
+use crate::hub::{Hub, HubConfig};
 use crate::rbac::Access;
 
 /// Largest request body on REST routes (`docs/ARCHITECTURE.md` section 5). WebSocket frames
@@ -40,6 +41,7 @@ pub struct AppState {
     pub db: Database,
     pub config: Arc<Config>,
     pub auth: Arc<AuthService>,
+    pub hub: Arc<Hub>,
 }
 
 impl AppState {
@@ -49,6 +51,7 @@ impl AppState {
             db,
             config,
             auth: Arc::new(AuthService::new()?),
+            hub: Arc::new(Hub::new(HubConfig::default())),
         })
     }
 }
@@ -57,6 +60,7 @@ impl AppState {
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/healthz", get(health::healthz))
+        .route("/ws/v1/docs/{id}", get(crate::hub::socket::doc_socket))
         .nest("/api/v1", api_routes())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
@@ -107,6 +111,9 @@ pub fn api_route_table() -> Vec<RouteSpec> {
         }),
         RouteSpec::new("POST", "/auth/logout", Access::User, || {
             post(auth::handlers::logout)
+        }),
+        RouteSpec::new("POST", "/auth/ws-ticket", Access::Member(Viewer), || {
+            post(auth::ws_ticket::ws_ticket)
         }),
         RouteSpec::new("GET", "/auth/me", Access::User, || get(auth::handlers::me)),
         RouteSpec::new("GET", "/workspaces", Access::User, || {

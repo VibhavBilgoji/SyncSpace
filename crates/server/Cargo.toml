@@ -27,6 +27,8 @@ uuid.workspace = true
 [dev-dependencies]
 tokio-tungstenite.workspace = true
 reqwest.workspace = true
+# The hub tests build hostile frames and updates with raw Yrs, like a malicious client would.
+yrs.workspace = true
 
 [lints]
 workspace = true

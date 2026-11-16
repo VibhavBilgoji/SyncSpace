@@ -10,7 +10,9 @@ mod extractor;
 pub mod handlers;
 pub mod password;
 pub mod session;
+pub mod ticket;
 pub mod validation;
+pub mod ws_ticket;
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -57,7 +57,7 @@ One crate, two targets: native (used by the server) and `wasm32-unknown-unknown`
 | `auth` | argon2id on blocking threads (at most 4 at a time, section 5), JWT session cookie, `AuthUser` extractor, ws tickets (HMAC, 30 s, single use via in-memory set), `Origin` check |
 | `rbac` | `require_role(workspace, user, min_role)`; one place for the permission matrix: a non-member gets 404, a member with too low a role 403. The router under `/api/v1` is built from `app::api_route_table()` (method, path, access, handler per route), which `tests/rbac_matrix.rs` walks and compares with `API.md` |
 | `api` | Axum routers per resource; request validation; maps errors to the error format |
-| `hub` | rooms: `DocRoom` (Yrs doc, connections, awareness, dirty flags) and `WorkspaceRoom` (connections); broadcast; role updates to live sessions |
+| `hub` | `Hub` (rooms by document id, loaded from the snapshot once even when two connections arrive together, ticket store), `DocRoom` (the CRDT replica behind a `std` mutex that is never held across an `.await`, a broadcast channel, the open-socket count, the dirty flag), `socket` (Origin and ticket checks, the role of the user, per-frame role checks, rate limits, size limits, close codes), `limits` (token buckets), `frames` (the JSON text frames). The `WorkspaceRoom` arrives with the board (task 5.x). The role is read when a socket connects; live role updates are future work (ADR-013) |
 | `snapshot` | 5 s worker and final flush |
 | `versions` | 10 min automatic versions, manual save, restore, retention |
 | `audit` | `audit::record(...)`; the only writer to `audit_logs` |

@@ -24,7 +24,6 @@ use server::rbac::{Access, Role};
 /// Documented routes of features that later tasks build. When a task adds them to the table,
 /// it also adds a fixture, and the entry here stops mattering.
 const NOT_BUILT_YET: &[&str] = &[
-    "/auth/ws-ticket",
     "/documents/{id}/versions",
     "/workspaces/{wid}/boards",
     "/boards/",
@@ -71,6 +70,10 @@ fn fixture(key: &str) -> Option<Fixture> {
         "POST /auth/logout" => Fixture {
             ok: 204,
             body: none,
+        },
+        "POST /auth/ws-ticket" => Fixture {
+            ok: 200,
+            body: |ctx| Some(json!({"scope": "doc", "id": ctx.doc_hex})),
         },
         "GET /auth/me" => Fixture {
             ok: 200,
@@ -265,7 +268,10 @@ async fn a_refused_call_changes_nothing() {
     let app = TestApp::real().await;
     for spec in api_route_table()
         .iter()
-        .filter(|s| s.method != "GET" && matches!(s.access, Access::Member(_)))
+        // A viewer is allowed on routes that need only VIEWER (the ws-ticket POST changes nothing).
+        .filter(|s| {
+            s.method != "GET" && matches!(s.access, Access::Member(role) if role != Role::Viewer)
+        })
     {
         let fixture = fixture(&key(spec)).unwrap();
         for caller in [Caller::Outsider, Caller::Member(Role::Viewer)] {
@@ -303,6 +309,7 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "POST /auth/login",
         "POST /auth/logout",
         "GET /auth/me",
+        "POST /auth/ws-ticket",
         "GET /workspaces",
         "POST /workspaces",
         "GET /workspaces/{wid}",
@@ -341,7 +348,7 @@ fn access_from_doc(role: &str) -> Access {
     match role {
         "public" => Access::Public,
         "user" => Access::User,
-        "member" => Access::User, // `ws-ticket`: any signed-in user until the hub exists
+        "member" => Access::Member(Role::Viewer), // `ws-ticket`: a member of the document's workspace
         "VIEWER" => Access::Member(Role::Viewer),
         "EDITOR" => Access::Member(Role::Editor),
         "ADMIN" => Access::Member(Role::Admin),

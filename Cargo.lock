@@ -2299,6 +2299,7 @@ dependencies = [
  "tracing-subscriber",
  "ts-rs",
  "uuid",
+ "yrs",
 ]
 
 [[package]]

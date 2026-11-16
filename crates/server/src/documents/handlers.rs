@@ -123,6 +123,7 @@ pub async fn delete_document(
         },
     )
     .await?;
-    // Task 2.3 (the hub) also closes the open sockets of this document with 4004 here.
+    // Everyone connected to the document is sent away with 4004.
+    state.hub.close_document(id);
     Ok(StatusCode::NO_CONTENT)
 }
