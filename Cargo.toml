@@ -46,8 +46,14 @@ expect_used = "deny"
 [profile.release.package.yrs]
 overflow-checks = true
 
+# Dependencies (not the workspace crates) are optimised in debug builds: Yrs does a lot of work
+# per update, and the property tests of `sync-crdt` run it thousands of times. Debug assertions
+# and overflow checks stay on, so the hostile-input tests still exercise them.
+[profile.dev.package."*"]
+opt-level = 2
+
 # Argon2 at the OWASP cost (19 MiB, 2 passes) is far too slow without optimisation, and every test
-# that registers or logs in a user pays for it. Optimise just the hashing crates in debug builds.
+# that registers or logs in a user pays for it. The two hashing crates get the highest level.
 [profile.dev.package.argon2]
 opt-level = 3
 [profile.dev.package.blake2]

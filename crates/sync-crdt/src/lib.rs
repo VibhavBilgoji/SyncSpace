@@ -1,8 +1,12 @@
 //! Shared CRDT logic for SyncSpace.
 //!
 //! Built natively for the server and to `wasm32-unknown-unknown` for the browser,
-//! so both sides run the same Yrs code. Task 0.3 is a spike with one shared text;
-//! the block schema from `docs/DATA_MODEL.md` §6 arrives in Phase 2.
+//! so both sides run the same Yrs code.
+//!
+//! [`Document`] is the block document of `docs/DATA_MODEL.md` section 6 (task 2.1): local edits
+//! in `ops`, reading in `projection`, y-sync messages in `sync`, and the defences against hostile
+//! updates in `validate`. [`SpikeDoc`] is the one-text spike of task 0.3, kept until the hub and
+//! the editor replace it.
 
 // `SpikeDoc::apply_update` relies on `catch_unwind` to turn a Yrs panic into an error, which
 // only works when panics unwind. Building natively with `panic = "abort"` (for example from a
@@ -13,8 +17,21 @@
 compile_error!("sync-crdt needs panic = \"unwind\" on native targets (see SpikeDoc::apply_update)");
 
 mod doc;
+mod document;
+mod error;
+mod ops;
 pub mod parity;
+mod projection;
+pub mod schema;
+mod sync;
+mod validate;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-pub use doc::{CrdtError, MAX_UPDATE_BYTES, SpikeDoc};
+pub use doc::SpikeDoc;
+pub use document::Document;
+pub use error::CrdtError;
+pub use projection::Block;
+pub use schema::{BlockType, order_between};
+pub use sync::{Handled, check_state_vector, update_frame};
+pub use validate::MAX_UPDATE_BYTES;

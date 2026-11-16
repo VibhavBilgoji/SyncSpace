@@ -1,12 +1,28 @@
 //! JavaScript API for the browser, built with `wasm-bindgen`.
 //!
-//! A thin wrapper over [`SpikeDoc`]: all behaviour lives there, so native and Wasm cannot drift.
-//! Local edits return their update bytes instead of using a callback; the page sends them on.
+//! Thin wrappers over [`SpikeDoc`] (the 0.3 spike, kept until the hub and the editor replace it)
+//! and [`Document`] (the block document of task 2.1): all behaviour lives in those types, so
+//! native and Wasm cannot drift. Local edits return their update bytes instead of using a
+//! callback; the page sends them on.
 
 use wasm_bindgen::prelude::*;
 
-use crate::SpikeDoc;
-use crate::parity::doc_from_fixture;
+use crate::parity::{block_doc_from_fixture, doc_from_fixture};
+use crate::{BlockType, Document, SpikeDoc, order_between, update_frame};
+
+/// A client id from JavaScript: an integer below 2^53. The range check also rejects NaN and
+/// infinities.
+fn parse_client_id(value: f64) -> Result<u64, JsError> {
+    if (0.0..9_007_199_254_740_992.0).contains(&value) && value.fract() == 0.0 {
+        Ok(value as u64)
+    } else {
+        Err(JsError::new("client id must be an integer below 2^53"))
+    }
+}
+
+fn parse_block_type(name: &str) -> Result<BlockType, JsError> {
+    BlockType::parse(name).ok_or_else(|| JsError::new("unknown block type"))
+}
 
 #[wasm_bindgen]
 pub struct WasmDoc {
@@ -19,12 +35,8 @@ impl WasmDoc {
     /// (for example from `crypto.getRandomValues`); Wasm has no randomness of its own.
     #[wasm_bindgen(constructor)]
     pub fn new(client_id: f64) -> Result<WasmDoc, JsError> {
-        // The range check also rejects NaN and infinities.
-        if !((0.0..9_007_199_254_740_992.0).contains(&client_id) && client_id.fract() == 0.0) {
-            return Err(JsError::new("client id must be an integer below 2^53"));
-        }
         Ok(WasmDoc {
-            inner: SpikeDoc::new(client_id as u64)?,
+            inner: SpikeDoc::new(parse_client_id(client_id)?)?,
         })
     }
 
@@ -60,4 +72,144 @@ impl WasmDoc {
     pub fn apply_update(&self, update: &[u8]) -> Result<(), JsError> {
         Ok(self.inner.apply_update(update)?)
     }
+}
+
+/// The block document for the editor (`docs/ARCHITECTURE.md` section 2, task 2.1).
+///
+/// Every edit returns the update bytes; the page sends them to the server as an Update frame
+/// (see `updateFrame`). After `applyUpdate` or `handleMessage` the page calls `blocksJson()` to
+/// re-render. Block ids are 12 letters or digits that the page creates (use
+/// `crypto.getRandomValues`); the client id must be unique among live replicas.
+#[wasm_bindgen]
+pub struct WasmDocument {
+    inner: Document,
+}
+
+#[wasm_bindgen]
+impl WasmDocument {
+    #[wasm_bindgen(constructor)]
+    pub fn new(client_id: f64) -> Result<WasmDocument, JsError> {
+        Ok(WasmDocument {
+            inner: Document::new(parse_client_id(client_id)?)?,
+        })
+    }
+
+    /// Replays a block parity fixture (see `tests/fixtures/README.md`).
+    #[wasm_bindgen(js_name = fromFixture)]
+    pub fn from_fixture(bytes: &[u8]) -> Result<WasmDocument, JsError> {
+        Ok(WasmDocument {
+            inner: block_doc_from_fixture(bytes)?,
+        })
+    }
+
+    #[wasm_bindgen(js_name = createBlock)]
+    pub fn create_block(
+        &self,
+        id: &str,
+        block_type: &str,
+        order: f64,
+        content: &str,
+    ) -> Result<Vec<u8>, JsError> {
+        Ok(self
+            .inner
+            .create_block(id, parse_block_type(block_type)?, order, content)?)
+    }
+
+    #[wasm_bindgen(js_name = deleteBlock)]
+    pub fn delete_block(&self, id: &str) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.delete_block(id)?)
+    }
+
+    /// Inserts at a UTF-16 index of the block's text.
+    #[wasm_bindgen(js_name = insertText)]
+    pub fn insert_text(&self, id: &str, index: u32, chunk: &str) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.insert_text(id, index, chunk)?)
+    }
+
+    /// Deletes `len` UTF-16 units of the block's text at `index`.
+    #[wasm_bindgen(js_name = deleteText)]
+    pub fn delete_text(&self, id: &str, index: u32, len: u32) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.delete_text(id, index, len)?)
+    }
+
+    #[wasm_bindgen(js_name = setType)]
+    pub fn set_type(&self, id: &str, block_type: &str) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.set_type(id, parse_block_type(block_type)?)?)
+    }
+
+    /// Replaces the block's properties with a JSON object such as `{"language":"rust"}`.
+    #[wasm_bindgen(js_name = setProps)]
+    pub fn set_props(&self, id: &str, props_json: &str) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.set_props(id, props_json)?)
+    }
+
+    #[wasm_bindgen(js_name = moveBlock)]
+    pub fn move_block(&self, id: &str, order: f64) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.move_block(id, order)?)
+    }
+
+    /// Rewrites every order to 1, 2, 3, ... for when `orderBetween` reports no room.
+    pub fn renumber(&self) -> Vec<u8> {
+        self.inner.renumber()
+    }
+
+    /// The text of one block.
+    #[wasm_bindgen(js_name = blockContent)]
+    pub fn block_content(&self, id: &str) -> Result<String, JsError> {
+        Ok(self.inner.block_content(id)?)
+    }
+
+    /// The blocks in reading order, as a JSON array of `Block` (see `docs/API.md` section 4).
+    #[wasm_bindgen(js_name = blocksJson)]
+    pub fn blocks_json(&self) -> String {
+        self.inner.blocks_json()
+    }
+
+    #[wasm_bindgen(js_name = stateVector)]
+    pub fn state_vector(&self) -> Vec<u8> {
+        self.inner.state_vector()
+    }
+
+    #[wasm_bindgen(js_name = encodeStateAsUpdate)]
+    pub fn encode_state_as_update(&self) -> Vec<u8> {
+        self.inner.encode_state_as_update()
+    }
+
+    /// What a peer with this state vector is missing.
+    #[wasm_bindgen(js_name = encodeStateAsUpdateFrom)]
+    pub fn encode_state_as_update_from(&self, state_vector: &[u8]) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.encode_state_as_update_from(state_vector)?)
+    }
+
+    /// Applies an update from the server. Throws on invalid bytes.
+    #[wasm_bindgen(js_name = applyUpdate)]
+    pub fn apply_update(&self, update: &[u8]) -> Result<(), JsError> {
+        Ok(self.inner.apply_update(update)?)
+    }
+
+    /// The first frame to send after connecting: "this is what I have, send me the rest".
+    #[wasm_bindgen(js_name = syncStep1Frame)]
+    pub fn sync_step1_frame(&self) -> Vec<u8> {
+        self.inner.sync_step1_frame()
+    }
+
+    /// Handles one binary frame from the server and returns the frame to send back (empty when
+    /// there is none). Throws on a frame that cannot be handled.
+    #[wasm_bindgen(js_name = handleMessage)]
+    pub fn handle_message(&self, frame: &[u8]) -> Result<Vec<u8>, JsError> {
+        Ok(self.inner.handle_message(frame)?.reply.unwrap_or_default())
+    }
+}
+
+/// The order for a block between two neighbours (`docs/API.md`, move rule). Pass `undefined` for
+/// a missing neighbour. Throws when there is no room between them: call `renumber()` first.
+#[wasm_bindgen(js_name = orderBetween)]
+pub fn order_between_js(before: Option<f64>, after: Option<f64>) -> Result<f64, JsError> {
+    Ok(order_between(before, after)?)
+}
+
+/// Wraps an update in an Update frame, ready to send over the document socket.
+#[wasm_bindgen(js_name = updateFrame)]
+pub fn update_frame_js(update: &[u8]) -> Vec<u8> {
+    update_frame(update)
 }

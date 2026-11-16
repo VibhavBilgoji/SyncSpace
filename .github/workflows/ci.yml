@@ -69,7 +69,7 @@ jobs:
       # switched on for yrs (see [profile.release.package.yrs] in Cargo.toml). They are what
       # ships, so the hostile-input tests must pass there too. The seed is fixed, so this step
       # cannot fail by luck; the nightly workflow explores new seeds.
-      - run: cargo test -p sync-crdt --release --test convergence --test parity
+      - run: cargo test -p sync-crdt --release --test convergence --test parity --test blocks --test block_parity
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack@0.15.1,cargo-llvm-cov@0.9.1
