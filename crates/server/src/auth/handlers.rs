@@ -8,6 +8,7 @@ use axum::response::{IntoResponse, Response};
 use mongodb::bson::DateTime;
 use mongodb::bson::oid::ObjectId;
 use serde::Serialize;
+use ts_rs::TS;
 
 use super::extractor::{AuthUser, not_signed_in};
 use super::validation::{
@@ -20,7 +21,8 @@ use crate::error::ApiError;
 use crate::extract::ApiJson;
 
 /// The `User` of `docs/API.md` section 4. It never carries the password hash.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(rename = "User")]
 pub struct UserResponse {
     pub id: String,
     pub name: String,

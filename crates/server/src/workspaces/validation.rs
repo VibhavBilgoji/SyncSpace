@@ -5,6 +5,7 @@
 //! `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$` or it is rejected.
 
 use serde::Deserialize;
+use ts_rs::TS;
 
 use crate::auth::validation::normalise_email;
 use crate::error::ApiError;
@@ -17,25 +18,31 @@ pub const MAX_SLUG_CHARS: usize = 40;
 const NAME_PROBLEM: &str = "must be 1 to 60 characters and contain no control characters";
 const SLUG_PROBLEM: &str = "must be 3 to 40 characters: lower-case letters, digits and hyphens, starting and ending with a letter or digit";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(rename = "CreateWorkspaceRequest")]
 pub struct CreateInput {
     pub name: String,
     pub slug: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(rename = "UpdateWorkspaceRequest")]
 pub struct PatchInput {
+    #[ts(optional)]
     pub name: Option<String>,
+    #[ts(optional)]
     pub slug: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(rename = "AddMemberRequest")]
 pub struct AddMemberInput {
     pub email: String,
     pub role: Role,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(rename = "ChangeRoleRequest")]
 pub struct RoleInput {
     pub role: Role,
 }

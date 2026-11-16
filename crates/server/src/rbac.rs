@@ -8,12 +8,13 @@
 use mongodb::Database;
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::db::workspaces::{self, Workspace};
 use crate::error::ApiError;
 
 /// A member's role in one workspace. The order is the order of power: `Viewer < Editor < Admin`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Role {
     Viewer,

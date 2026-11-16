@@ -44,6 +44,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The TypeScript types of the API are generated from the Rust structs and committed. Regenerate
+      # and fail when anything differs (a changed file) or appears (a new file `git diff` misses).
+      - name: generated TypeScript types are up to date
+        run: |
+          cargo run -p server --bin gen-types
+          git diff --exit-code -- apps/web/src/types/generated
+          untracked=$(git status --porcelain --untracked-files=all -- apps/web/src/types/generated)
+          if [ -n "$untracked" ]; then
+            echo "::error::apps/web/src/types/generated is stale; run 'cargo run -p server --bin gen-types' and commit the result"
+            echo "$untracked"
+            exit 1
+          fi
       - name: cargo test
         shell: bash
         run: |
@@ -100,7 +112,7 @@ jobs:
       - run: pnpm --dir apps/web typecheck
       - run: pnpm --dir apps/web test
       # TODO(phase 1): pnpm --dir apps/web test --coverage (70% on src/lib and src/components)
-      # TODO(phase 1): cargo run -p server --bin gen-types && git diff --exit-code apps/web/src/types/generated
+      # The generated-types staleness check runs in the `rust` job (it needs the Rust toolchain only).
 
   e2e:
     needs: [rust, web]
