@@ -54,6 +54,9 @@ pub fn mongodb_uri() -> String {
     std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string())
 }
 
+/// The bearer token of `GET /metrics` in tests.
+pub const METRICS_TOKEN: &str = "test-metrics-token-1234";
+
 pub fn env_map(uri: &str, db_name: &str, origins: &str) -> HashMap<String, String> {
     [
         ("MONGODB_URI", uri),
@@ -156,6 +159,8 @@ pub struct AppOptions {
     pub hash_limits: Option<(usize, Duration)>,
     /// Hub limits and timeouts (the documented defaults when `None`).
     pub hub: Option<HubConfig>,
+    /// The `METRICS_TOKEN` value (`None`: not set).
+    pub metrics_token: Option<&'static str>,
 }
 
 impl Default for AppOptions {
@@ -166,6 +171,7 @@ impl Default for AppOptions {
             cookie_secure: false,
             hash_limits: None,
             hub: None,
+            metrics_token: Some(METRICS_TOKEN),
         }
     }
 }
@@ -211,6 +217,9 @@ impl TestApp {
         let config_for = |uri: &str, db_name: &str| {
             let mut vars = env_map(uri, db_name, options.origins);
             vars.insert("COOKIE_SECURE".to_string(), secure.clone());
+            if let Some(token) = options.metrics_token {
+                vars.insert("METRICS_TOKEN".to_string(), token.to_string());
+            }
             Config::from_map(&vars).unwrap()
         };
         let (test_db, config) = match options.mongo {

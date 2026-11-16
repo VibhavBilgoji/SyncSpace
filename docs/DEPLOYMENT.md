@@ -131,6 +131,7 @@ Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` (set the last two 
 | `ALLOWED_ORIGINS` | `https://syncspace.vercel.app` | comma separated; used for CORS and the WebSocket Origin check |
 | `COOKIE_SECURE` | `true` | `false` only for local http |
 | `SNAPSHOT_INTERVAL_SECS` | `5` | |
+| `METRICS_TOKEN` | unset | Bearer token (16+ characters) for `GET /metrics`. Unset: the endpoint answers 404. Set it on the API service and give the same value to whatever scrapes it |
 | `VERSION_INTERVAL_SECS` | `600` | |
 | `AUTO_VERSION_RETENTION` | `50` | |
 | `RUST_LOG` | `info,server=info` | |

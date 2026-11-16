@@ -890,3 +890,48 @@ async fn removing_a_member_closes_their_socket_with_4003_and_they_cannot_return(
         .await;
     assert_eq!(status, 404);
 }
+
+#[tokio::test]
+async fn a_viewer_who_keeps_sending_writes_is_disconnected() {
+    let app = TestApp::spawn(
+        AppOptions {
+            hub: Some(HubConfig {
+                updates: BucketConfig {
+                    burst: 5,
+                    per_second: 1,
+                },
+                ..HubConfig::default()
+            }),
+            ..AppOptions::default()
+        },
+        |routes| routes,
+    )
+    .await;
+    let room = Room::new(&app).await;
+    let mut viewer = join(&app, &room, room.viewer(), 1401).await;
+    let first = viewer.doc.blocks()[0].block_id.clone();
+    for _ in 0..20 {
+        let update = viewer.doc.insert_text(&first, 0, "x").unwrap();
+        viewer.send_update(&update).await;
+    }
+    let mut closed = None;
+    while let Some(frame) = viewer.recv_within(Duration::from_secs(2)).await {
+        if let Frame::Closed(code) = frame {
+            closed = code;
+            break;
+        }
+    }
+    assert_eq!(closed, Some(CLOSE_POLICY));
+}
+
+#[tokio::test]
+async fn a_long_text_frame_is_refused_before_it_is_parsed() {
+    let app = TestApp::real().await;
+    let room = Room::new(&app).await;
+    let mut client = join(&app, &room, room.editor(), 1402).await;
+    let padding = " ".repeat(2000);
+    client
+        .send_text(&format!(r#"{{"type":"PING","t":1,"pad":"{padding}"}}"#))
+        .await;
+    assert_eq!(client.recv_close().await, Some(CLOSE_TOO_BIG));
+}

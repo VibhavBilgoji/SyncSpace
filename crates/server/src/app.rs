@@ -209,12 +209,36 @@ pub fn apply_layers(router: Router, config: &Config) -> Router {
 }
 
 /// The counters of `crate::metrics`, as text. Counts only, no identifiers.
-async fn metrics_page(State(state): State<AppState>) -> impl IntoResponse {
+async fn metrics_page(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<impl IntoResponse, ApiError> {
+    // Unset token: the endpoint does not exist. Wrong or missing token: the same 404, so the
+    // page cannot be told apart from any other unknown route.
+    let allowed = state.config.metrics_token.as_ref().is_some_and(|token| {
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .is_some_and(|given| same_secret(given.as_bytes(), token.expose().as_bytes()))
+    });
+    if !allowed {
+        return Err(ApiError::not_found("not found"));
+    }
     let body = state
         .hub
         .metrics
         .render(state.hub.open_room_list().len(), state.hub.open_sockets());
-    ([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body)
+    Ok(([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body))
+}
+
+/// Compares in time that does not depend on where the first difference is.
+fn same_secret(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = a.len() ^ b.len();
+    for i in 0..a.len().max(b.len()) {
+        diff |= usize::from(a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0));
+    }
+    diff == 0
 }
 
 async fn not_found() -> ApiError {

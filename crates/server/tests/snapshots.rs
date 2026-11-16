@@ -262,7 +262,13 @@ async fn the_metrics_page_shows_counts_and_nothing_else() {
     let room = app.hub.room(&app.db, fx.doc).await.unwrap();
     app.hub.flush_room(&app.db, &room).await.unwrap();
 
-    let response = app.client.get(app.url("/metrics")).send().await.unwrap();
+    let response = app
+        .client
+        .get(app.url("/metrics"))
+        .bearer_auth(common::METRICS_TOKEN)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(response.status(), 200);
     assert!(
         response
@@ -333,4 +339,66 @@ async fn two_flushes_at_once_write_the_latest_state_last() {
     b.unwrap();
     app.hub.flush_room(&app.db, &room).await.unwrap();
     assert_eq!(fx.stored(&app).await.1, "onetwo");
+}
+
+#[tokio::test]
+async fn the_metrics_page_is_a_404_without_the_right_token_or_when_none_is_set() {
+    let app = TestApp::real().await;
+    let url = app.url("/metrics");
+    let get = |auth: Option<&'static str>| {
+        let request = app.client.get(&url);
+        let request = match auth {
+            Some(value) => request.header("authorization", value),
+            None => request,
+        };
+        async move { request.send().await.unwrap() }
+    };
+    let unknown = app
+        .client
+        .get(app.url("/no-such-page"))
+        .send()
+        .await
+        .unwrap();
+    let wrong = get(Some("Bearer not-the-token-at-all")).await;
+    assert_eq!(wrong.status(), 404);
+    assert_eq!(get(None).await.status(), 404);
+    assert_eq!(
+        get(Some("Basic test-metrics-token-1234")).await.status(),
+        404
+    );
+    assert_eq!(
+        get(Some("Bearer test-metrics-token-123")).await.status(),
+        404,
+        "a prefix is not enough"
+    );
+    assert_eq!(
+        wrong.text().await.unwrap(),
+        unknown.text().await.unwrap(),
+        "same body as any unknown route"
+    );
+    assert_eq!(
+        get(Some("Bearer test-metrics-token-1234")).await.status(),
+        200
+    );
+
+    let open = TestApp::spawn(
+        common::AppOptions {
+            metrics_token: None,
+            ..common::AppOptions::default()
+        },
+        |routes| routes,
+    )
+    .await;
+    let response = open
+        .client
+        .get(open.url("/metrics"))
+        .bearer_auth(common::METRICS_TOKEN)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        404,
+        "no token configured: the endpoint does not exist"
+    );
 }
