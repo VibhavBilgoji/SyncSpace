@@ -157,6 +157,50 @@ pub async fn update_details(
         .await
 }
 
+/// Stores a snapshot: the CRDT state, the blocks projected from it, a new `updated_at`, and
+/// `revision + 1` (`docs/DATA_MODEL.md`: the revision only increases). Returns the new revision
+/// and the time, or `None` when the document no longer exists (it was deleted meanwhile).
+pub async fn write_snapshot(
+    db: &Database,
+    id: ObjectId,
+    snapshot: Vec<u8>,
+    blocks: &[BlockRecord],
+) -> Result<Option<(i64, DateTime)>, mongodb::error::Error> {
+    let now = DateTime::now();
+    let block_docs: Vec<Bson> = blocks
+        .iter()
+        .map(|block| {
+            Bson::Document(doc! {
+                "block_id": &block.block_id,
+                "type": &block.block_type,
+                "content": &block.content,
+                "properties": block.properties.clone(),
+                "order": block.order,
+            })
+        })
+        .collect();
+    let options = FindOneAndUpdateOptions::builder()
+        .return_document(ReturnDocument::After)
+        .projection(without_snapshot())
+        .build();
+    let updated = collection(db)
+        .find_one_and_update(
+            doc! { "_id": id },
+            doc! {
+                "$set": {
+                    "crdt_snapshot": Binary { subtype: mongodb::bson::spec::BinarySubtype::Generic, bytes: snapshot },
+                    "blocks": block_docs,
+                    "updated_at": now,
+                    "changed_since_version": true,
+                },
+                "$inc": { "revision": 1_i64 },
+            },
+        )
+        .with_options(options)
+        .await?;
+    Ok(updated.map(|record| (record.revision, now)))
+}
+
 /// Deletes a document and its versions. `false` when it did not exist.
 pub async fn delete(db: &Database, id: ObjectId) -> Result<bool, mongodb::error::Error> {
     let result = collection(db).delete_one(doc! { "_id": id }).await?;

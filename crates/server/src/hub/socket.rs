@@ -115,12 +115,18 @@ async fn authorise(
             return Err((CLOSE_INTERNAL, "internal error"));
         }
     };
-    let granted = require_role(&state.db, room.workspace_id, ticket.user, Role::Viewer)
-        .await
-        .map_err(|error| match error {
-            ApiError::NotFound(_) | ApiError::Forbidden(_) => (CLOSE_FORBIDDEN, "forbidden"),
-            _ => (CLOSE_INTERNAL, "internal error"),
-        })?;
+    let granted = require_role(&state.db, room.workspace_id, ticket.user, Role::Viewer).await;
+    let granted = match granted {
+        Ok(granted) => granted,
+        Err(error) => {
+            // The room was loaded for this attempt: let go of it so a refused user cannot pin it.
+            state.hub.release(&state.db, &room).await;
+            return Err(match error {
+                ApiError::NotFound(_) | ApiError::Forbidden(_) => (CLOSE_FORBIDDEN, "forbidden"),
+                _ => (CLOSE_INTERNAL, "internal error"),
+            });
+        }
+    };
     Ok(Identity {
         room,
         role: granted.role,
@@ -250,6 +256,7 @@ impl Connection {
                         "too many updates",
                     ))];
                 }
+                let started = Instant::now();
                 match self.apply(&bytes, kind).await {
                     Ok(handled) => {
                         if let Some(update) = handled.update {
@@ -257,6 +264,7 @@ impl Connection {
                                 from: self.id,
                                 bytes: Bytes::from(update_frame(&update)),
                             });
+                            self.room.metrics().observe_broadcast(started.elapsed());
                         }
                         Vec::new()
                     }
@@ -304,9 +312,34 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
     };
     let room = connection.room.clone();
 
-    // Subscribe before announcing, so this connection hears the count that includes itself.
+    // Subscribe before joining, so this connection hears the count that includes itself. The
+    // join fails when the room was evicted a moment ago (its last socket had just left); the
+    // document is then simply loaded again.
     let mut outgoing = room.subscribe();
-    room.join();
+    let mut room = room;
+    let mut joined = state.hub.try_join(&room);
+    let mut gone = false;
+    if !joined {
+        match state.hub.room(&state.db, doc_id).await {
+            Ok(fresh) => {
+                room = fresh;
+                outgoing = room.subscribe();
+                joined = state.hub.try_join(&room);
+            }
+            Err(RoomLookup::Missing) => gone = true,
+            Err(RoomLookup::Failed(_)) => {}
+        }
+    }
+    if !joined {
+        let (code, reason) = if gone {
+            (CLOSE_DOCUMENT_GONE, "document not found")
+        } else {
+            (CLOSE_INTERNAL, "internal error")
+        };
+        close(&mut socket, code, reason, config.send_timeout).await;
+        return;
+    }
+    connection.room = room.clone();
     room.announce_presence();
 
     let mut ping = interval(config.ping_interval);
@@ -363,8 +396,11 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
         }
     }
 
-    room.leave();
+    let remaining = room.leave();
     room.announce_presence();
+    if remaining == 0 {
+        state.hub.release(&state.db, &room).await;
+    }
 }
 
 #[cfg(test)]

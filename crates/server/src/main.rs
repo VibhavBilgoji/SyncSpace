@@ -58,7 +58,22 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await?;
     tracing::info!(address = %listener.local_addr()?, "listening");
 
-    app::serve(listener, app::router(state), app::shutdown_signal()).await?;
+    // Write the open documents every few seconds, and again on the way out: the shutdown signal
+    // first writes every changed document and sends the sockets away, because the graceful
+    // shutdown of the HTTP server waits for open connections.
+    let hub = state.hub.clone();
+    let snapshot_db = state.db.clone();
+    let worker = server::hub::snapshot::spawn(
+        hub.clone(),
+        snapshot_db.clone(),
+        std::time::Duration::from_secs(state.config.snapshot_interval_secs),
+    );
+    let stopping = async move {
+        app::shutdown_signal().await;
+        worker.abort();
+        hub.shutdown(&snapshot_db).await;
+    };
+    app::serve(listener, app::router(state), stopping).await?;
     tracing::info!("shut down cleanly");
     Ok(())
 }

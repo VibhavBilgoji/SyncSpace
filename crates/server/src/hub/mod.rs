@@ -11,6 +11,7 @@
 pub mod frames;
 pub mod limits;
 pub mod room;
+pub mod snapshot;
 pub mod socket;
 
 use std::collections::HashMap;
@@ -25,10 +26,15 @@ use tokio::sync::OnceCell;
 pub use self::limits::BucketConfig;
 pub use self::room::{DocRoom, Outgoing, RoomError};
 use crate::auth::ticket::TicketStore;
-use crate::db::documents;
+use crate::db::documents::{self, BlockRecord};
 use crate::error::ApiError;
+use crate::metrics::Metrics;
+use crate::workspaces::handlers::iso;
+
+use self::frames::ServerFrame;
 
 /// Close codes of `docs/API.md` section 3.
+pub const CLOSE_GOING_AWAY: u16 = 1001;
 pub const CLOSE_POLICY: u16 = 1008;
 pub const CLOSE_TOO_BIG: u16 = 1009;
 pub const CLOSE_INTERNAL: u16 = 1011;
@@ -92,6 +98,7 @@ pub enum RoomLookup {
 pub struct Hub {
     pub config: HubConfig,
     pub tickets: TicketStore,
+    pub metrics: Arc<Metrics>,
     rooms: Mutex<HashMap<ObjectId, Arc<OnceCell<Arc<DocRoom>>>>>,
     next_connection: AtomicU64,
 }
@@ -101,6 +108,7 @@ impl Hub {
         Self {
             config,
             tickets: TicketStore::default(),
+            metrics: Arc::new(Metrics::default()),
             rooms: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
         }
@@ -119,6 +127,7 @@ impl Hub {
     pub async fn room(&self, db: &Database, id: ObjectId) -> Result<Arc<DocRoom>, RoomLookup> {
         let cell = self.rooms().entry(id).or_default().clone();
         let max_state_bytes = self.config.max_state_bytes;
+        let metrics = self.metrics.clone();
         let result = cell
             .get_or_try_init(|| async move {
                 let record = documents::find_with_snapshot(db, id)
@@ -128,9 +137,15 @@ impl Hub {
                 let snapshot = record.crdt_snapshot.ok_or_else(|| {
                     RoomLookup::Failed(ApiError::internal("document has no snapshot"))
                 })?;
-                DocRoom::load(id, record.workspace_id, &snapshot.bytes, max_state_bytes)
-                    .map(Arc::new)
-                    .map_err(|error| RoomLookup::Failed(ApiError::internal(error)))
+                DocRoom::load(
+                    id,
+                    record.workspace_id,
+                    &snapshot.bytes,
+                    max_state_bytes,
+                    metrics,
+                )
+                .map(Arc::new)
+                .map_err(|error| RoomLookup::Failed(ApiError::internal(error)))
             })
             .await;
         match result {
@@ -139,6 +154,130 @@ impl Hub {
                 // Do not keep a cell that never got a room.
                 self.rooms().remove(&id);
                 Err(error)
+            }
+        }
+    }
+
+    /// Registers a connection with `room`, unless the room was forgotten in the meantime (its last
+    /// socket left and it was flushed and evicted). Checking and joining happen under the same lock
+    /// that eviction takes, so a connection can never end up on a room that is no longer in the map:
+    /// two connections on "the same document" in two different rooms would diverge.
+    pub fn try_join(&self, room: &Arc<DocRoom>) -> bool {
+        let rooms = self.rooms();
+        let present = rooms
+            .get(&room.id)
+            .and_then(|cell| cell.get())
+            .is_some_and(|current| Arc::ptr_eq(current, room));
+        if present {
+            room.join();
+        }
+        present
+    }
+
+    /// Every open room.
+    pub fn open_room_list(&self) -> Vec<Arc<DocRoom>> {
+        self.rooms()
+            .values()
+            .filter_map(|cell| cell.get().cloned())
+            .collect()
+    }
+
+    /// How many sockets are open on all documents.
+    pub fn open_sockets(&self) -> u64 {
+        self.open_room_list()
+            .iter()
+            .map(|room| u64::from(room.active()))
+            .sum()
+    }
+
+    /// Writes the room to MongoDB if anything changed since the last snapshot. `Ok(true)` when it
+    /// wrote. On a failure the changes are marked again so the next snapshot tries once more.
+    /// The document lock is held only while encoding, never across the write.
+    pub async fn flush_room(
+        &self,
+        db: &Database,
+        room: &DocRoom,
+    ) -> Result<bool, mongodb::error::Error> {
+        // One flush of a room at a time: see `DocRoom::flush_gate`.
+        let _gate = room.flush_gate().lock().await;
+        if !room.take_dirty() {
+            return Ok(false);
+        }
+        // If this future is dropped before the write is confirmed (task aborted, server going
+        // down), the changes are marked again instead of being forgotten.
+        let mut guard = DirtyGuard { room, armed: true };
+        let (snapshot, blocks) = room.state();
+        let records: Vec<BlockRecord> = blocks.iter().map(BlockRecord::from).collect();
+        let result = documents::write_snapshot(db, room.id, snapshot, &records).await?;
+        guard.armed = false;
+        match result {
+            Some((revision, saved_at)) => {
+                self.metrics.snapshot_write();
+                room.broadcast(Outgoing::Json(
+                    ServerFrame::SnapshotSaved {
+                        revision,
+                        saved_at: iso(saved_at),
+                    }
+                    .to_text(),
+                ));
+                Ok(true)
+            }
+            // The document was deleted while it was open: nothing to save.
+            None => Ok(false),
+        }
+    }
+
+    /// Flushes every open room; returns how many were written. A failing room is logged and does
+    /// not stop the others.
+    pub async fn flush_all(&self, db: &Database) -> usize {
+        let mut written = 0;
+        for room in self.open_room_list() {
+            match self.flush_room(db, &room).await {
+                Ok(true) => written += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::error!(error = %error, "could not write a snapshot");
+                }
+            }
+        }
+        written
+    }
+
+    /// The last socket of `room` left: write what is left and, when nobody has come back, forget
+    /// the room so that memory does not grow with every document ever opened.
+    pub async fn release(&self, db: &Database, room: &Arc<DocRoom>) {
+        if room.active() > 0 {
+            return;
+        }
+        if let Err(error) = self.flush_room(db, room).await {
+            // Keep the room: it is dirty again, and the snapshot worker retries.
+            tracing::error!(error = %error, "the final snapshot failed");
+            return;
+        }
+        let mut rooms = self.rooms();
+        let same = rooms
+            .get(&room.id)
+            .and_then(|cell| cell.get())
+            .is_some_and(|current| Arc::ptr_eq(current, room));
+        if same && room.active() == 0 && !room.is_dirty() {
+            rooms.remove(&room.id);
+        }
+    }
+
+    /// The server is stopping: write every changed document, then send every socket away with
+    /// 1001 so that the graceful shutdown of the HTTP server can finish (it waits for open
+    /// connections).
+    pub async fn shutdown(&self, db: &Database) {
+        // Twice: the HTTP server still accepts connections while the first flush runs, and a
+        // room opened in that window must be written and sent away too.
+        for _ in 0..2 {
+            let written = self.flush_all(db).await;
+            tracing::info!(written, "final snapshots written");
+            for room in self.open_room_list() {
+                room.broadcast(Outgoing::Close {
+                    code: CLOSE_GOING_AWAY,
+                    reason: "server shutting down",
+                });
             }
         }
     }
@@ -157,5 +296,19 @@ impl Hub {
     /// How many rooms are open (for tests).
     pub fn open_rooms(&self) -> usize {
         self.rooms().len()
+    }
+}
+
+/// Puts the dirty flag back unless the write was confirmed.
+struct DirtyGuard<'a> {
+    room: &'a DocRoom,
+    armed: bool,
+}
+
+impl Drop for DirtyGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.room.mark_dirty();
+        }
     }
 }

@@ -50,12 +50,12 @@ Role column: minimum role needed in the workspace the resource belongs to.
 | `PATCH /workspaces/:wid` | ADMIN | `{name?, slug?}` (at least one) | `Workspace`; 409 for a taken slug |
 | `GET /workspaces/:wid/members` | VIEWER | | `[Member]` with name, email, role, joined_at, is_owner; the owner first, then in join order |
 | `POST /workspaces/:wid/members` | ADMIN | `{email, role}` | 201 `Member`; 404 if no account has that email; 409 if already a member; audit MEMBER_ADD |
-| `PATCH /workspaces/:wid/members/:uid` | ADMIN | `{role}` | `Member`; 409 for the owner; 404 if not a member; audit ROLE_CHANGE (none when the role is already that one); live sessions updated |
-| `DELETE /workspaces/:wid/members/:uid` | ADMIN | | 204; 409 for the owner; 404 if not a member; audit MEMBER_REMOVE; the user leaves the assignees of the workspace's tasks; sessions closed with 4003 |
+| `PATCH /workspaces/:wid/members/:uid` | ADMIN | `{role}` | `Member`; 409 for the owner; 404 if not a member; audit ROLE_CHANGE (none when the role is already that one); an open socket keeps its old role until it reconnects (ADR-013) |
+| `DELETE /workspaces/:wid/members/:uid` | ADMIN | | 204; 409 for the owner; 404 if not a member; audit MEMBER_REMOVE; the user leaves the assignees of the workspace's tasks; an open socket of the user is **not** closed (ADR-013): the user gets 4003 when it reconnects |
 
 **Workspace rules.** `name`: trimmed, 1 to 60 characters, no control characters. `slug`: exactly `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$` (3 to 40 characters); it is never changed for the caller, so `Team` is rejected, not turned into `team`. A path id that is not 24 hex characters is 400. A caller who is not a member of `:wid` gets the same 404 as for an id that does not exist; a member below the route's role gets 403, and the role is checked before the body, so a refused caller learns nothing about their body. The owner is an ADMIN member who cannot be demoted or removed, by anyone. Any other ADMIN may demote or remove themselves. A member email is matched like a login email (trimmed, case-insensitive). Creating or editing a workspace is not audited; adding, removing and changing members is, one row each, only when something changed.
 
-**Not yet live.** `ROLE_CHANGED` and the 4003 close need the WebSocket hub (task 2.3). Until then nothing is open to update, and REST re-reads membership on every request, so a removed or demoted user is refused at once.
+**Not live (ADR-013).** `ROLE_CHANGED` and closing a removed user's open sockets are future work. REST re-reads membership on every request, so a removed or demoted user is refused there at once; the socket applies the new role when it reconnects.
 
 ### Documents
 | Method and path | Role | Body | Response |
@@ -180,10 +180,11 @@ interface ApiErrorBody { code: ErrorCode; message: string; details?: Record<stri
 interface ApiErrorResponse { error: ApiErrorBody }
 type Scope = "doc" | "workspace";
 interface WsTicketResponse { ticket: string; expires_at: string }
-type SocketErrorCode = "READ_ONLY" | "RATE_LIMITED" | "TOO_LARGE";
+type SocketErrorCode = "READ_ONLY" | "RATE_LIMITED" | "TOO_LARGE"; // TOO_LARGE is reserved: oversized frames close with 1009
 type ServerFrame = { type: "PONG"; t: number }
                  | { type: "ERROR"; code: SocketErrorCode; message: string }
-                 | { type: "PRESENCE_COUNT"; active_sockets: number };
+                 | { type: "PRESENCE_COUNT"; active_sockets: number }
+                 | { type: "SNAPSHOT_SAVED"; revision: number; saved_at: string };
 type ClientFrame = { type: "PING"; t: number };
 interface Member { user_id: string; name: string; email: string; role: Role; joined_at: string; is_owner: boolean }
 interface Block { block_id: string; type: BlockType; content: string; properties: Record<string, unknown>; order: number }

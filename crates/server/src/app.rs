@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Method, Request, Response, header};
 use axum::response::IntoResponse;
 use axum::routing::{MethodRouter, delete, get, patch, post};
@@ -61,6 +61,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/healthz", get(health::healthz))
         .route("/ws/v1/docs/{id}", get(crate::hub::socket::doc_socket))
+        .route("/metrics", get(metrics_page))
         .nest("/api/v1", api_routes())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
@@ -205,6 +206,15 @@ pub fn apply_layers(router: Router, config: &Config) -> Router {
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors_layer(&config.allowed_origins));
     with_request_logging(router)
+}
+
+/// The counters of `crate::metrics`, as text. Counts only, no identifiers.
+async fn metrics_page(State(state): State<AppState>) -> impl IntoResponse {
+    let body = state
+        .hub
+        .metrics
+        .render(state.hub.open_room_list().len(), state.hub.open_sockets());
+    ([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body)
 }
 
 async fn not_found() -> ApiError {

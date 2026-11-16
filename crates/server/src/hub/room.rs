@@ -5,7 +5,7 @@
 //! and release before they send anything on a socket.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::body::Bytes;
 use mongodb::bson::oid::ObjectId;
@@ -14,6 +14,7 @@ use tokio::sync::broadcast;
 
 use super::frames::ServerFrame;
 use crate::documents::SERVER_CLIENT_ID;
+use crate::metrics::Metrics;
 
 /// Messages kept for the slowest receiver. Together with the frame limit this bounds the backlog a
 /// stuck peer can pin in memory (`docs/ARCHITECTURE.md` section 4).
@@ -46,7 +47,12 @@ pub struct DocRoom {
     tx: broadcast::Sender<Outgoing>,
     active: AtomicU32,
     dirty: AtomicBool,
+    /// Serialises snapshots of this room (not the document lock): held across the encode and the
+    /// MongoDB write, so two flushes can neither lose a failed write nor let an older state
+    /// overwrite a newer one.
+    flush_gate: tokio::sync::Mutex<()>,
     max_state_bytes: usize,
+    metrics: Arc<Metrics>,
 }
 
 impl DocRoom {
@@ -56,6 +62,7 @@ impl DocRoom {
         workspace_id: ObjectId,
         snapshot: &[u8],
         max_state_bytes: usize,
+        metrics: Arc<Metrics>,
     ) -> Result<Self, CrdtError> {
         let doc = CrdtDocument::new(SERVER_CLIENT_ID)?;
         doc.apply_update(snapshot)?;
@@ -67,7 +74,9 @@ impl DocRoom {
             tx,
             active: AtomicU32::new(0),
             dirty: AtomicBool::new(false),
+            flush_gate: tokio::sync::Mutex::new(()),
             max_state_bytes,
+            metrics,
         })
     }
 
@@ -147,13 +156,35 @@ impl DocRoom {
         }
         if kind.is_write() && handled.update.is_some() {
             self.dirty.store(true, Ordering::SeqCst);
+            self.metrics.edit();
         }
         Ok(handled)
     }
 
-    /// Whether anything changed since the last snapshot (task 2.4 clears it).
+    /// Whether anything changed since the last snapshot.
     pub fn is_dirty(&self) -> bool {
         self.dirty.load(Ordering::SeqCst)
+    }
+
+    /// Claims the changes made so far for a snapshot: returns whether there were any and clears the
+    /// flag **before** the state is encoded. An edit that lands while the snapshot is being
+    /// encoded or written sets the flag again, so the next snapshot writes it; setting the flag
+    /// after the write instead could erase that edit's flag and lose it.
+    pub fn take_dirty(&self) -> bool {
+        self.dirty.swap(false, Ordering::SeqCst)
+    }
+
+    /// Puts the flag back (a snapshot write failed).
+    pub fn mark_dirty(&self) {
+        self.dirty.store(true, Ordering::SeqCst);
+    }
+
+    pub fn flush_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.flush_gate
+    }
+
+    pub fn metrics(&self) -> &Metrics {
+        &self.metrics
     }
 
     /// The whole state and its blocks, for tests and the snapshot worker.
