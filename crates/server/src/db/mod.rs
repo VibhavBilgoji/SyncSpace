@@ -10,6 +10,7 @@ use crate::config::Config;
 
 pub mod documents;
 pub mod users;
+pub mod versions;
 pub mod workspaces;
 
 /// MongoDB's error code for a violated unique index.
