@@ -42,7 +42,7 @@ Each user has one role per workspace. The workspace owner is always a member wit
 | FR12 | The system writes one audit row for each of these actions: DOC_CREATE, DOC_DELETE, ROLE_CHANGE, MEMBER_ADD, MEMBER_REMOVE, TASK_CREATE, TASK_MOVE, TASK_DELETE, VERSION_SAVE, VERSION_RESTORE. |
 | FR13 | Only ADMINs can read the audit trail, filter it by action, actor and entity type, inspect an entry's JSON, and export the loaded entries as CSV or JSON. |
 | FR14 | ADMINs and EDITORs can save a named version (manual save point with a label). |
-| FR15 | The server saves an automatic version at most every 10 minutes while a document changes, and when the last editor leaves if the content changed since the last version. It keeps the newest 50 automatic versions per document. Manual and restore versions are kept. |
+| FR15 | The server saves an automatic version at most every 10 minutes while a document changes, and when the last editor leaves if the content changed since the last version. It keeps the newest 50 automatic versions per document. Manual and restore versions are kept. **Future work: not built for the submission (ADR-012).** |
 | FR16 | Every member can list a document's versions (number, type, label, time, author) and preview any version read-only. |
 | FR17 | ADMINs and EDITORs can restore a version. The current content is saved first as a RESTORE version, then the old content is applied as a new edit that everyone connected sees live. No version is deleted by a restore. |
 | FR18 | A command palette (Ctrl/Cmd + K) jumps to documents, boards, settings and (for ADMINs) the audit trail. |
