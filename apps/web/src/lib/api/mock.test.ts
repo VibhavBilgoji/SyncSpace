@@ -106,3 +106,38 @@ describe("buildApi", () => {
     expect(api.workspaces).not.toBe(realWorkspaces);
   });
 });
+
+describe("mock documents", () => {
+  async function ready() {
+    const api = createMockApi();
+    await api.auth.register({ name: "Ada", email: "ada@example.com", password: "password1" });
+    const workspace = await api.workspaces.create({ name: "Eng", slug: "eng" });
+    return { api, workspace };
+  }
+
+  it("creates, lists newest first, gets and removes", async () => {
+    const { api, workspace } = await ready();
+    const first = await api.documents.create(workspace.id, { title: " One " });
+    await new Promise((r) => setTimeout(r, 2));
+    const second = await api.documents.create(workspace.id, { title: "Two", icon: "🚀" });
+    expect(first.title).toBe("One");
+    expect(first.icon).toBe("📄");
+    expect((await api.documents.list(workspace.id)).map((d) => d.title)).toEqual(["Two", "One"]);
+    expect((await api.documents.get(second.id)).icon).toBe("🚀");
+    await api.documents.remove(first.id);
+    expect(await api.documents.list(workspace.id)).toHaveLength(1);
+  });
+
+  it("validates like the server", async () => {
+    const { api, workspace } = await ready();
+    await expect(api.documents.create(workspace.id, { title: "  " })).rejects.toMatchObject({
+      status: 422,
+    });
+    await expect(
+      api.documents.create(workspace.id, { title: "x", icon: "y".repeat(17) }),
+    ).rejects.toMatchObject({ status: 422 });
+    await expect(api.documents.create("0".repeat(24), { title: "x" })).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
