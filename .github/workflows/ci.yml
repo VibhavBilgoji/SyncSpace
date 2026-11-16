@@ -142,6 +142,8 @@ jobs:
             e2e/pnpm-lock.yaml
       - run: pnpm --dir apps/web install --frozen-lockfile
       - run: pnpm --dir apps/web wasm
+      # Built here so that Playwright's 300 s start-up wait is not spent compiling.
+      - run: cargo build -p server
       - run: pnpm --dir e2e install --frozen-lockfile
       - run: pnpm --dir e2e typecheck
       - run: pnpm --dir e2e exec playwright install --with-deps chromium firefox
