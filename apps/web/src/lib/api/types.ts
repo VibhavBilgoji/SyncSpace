@@ -4,6 +4,8 @@ import type {
   Document,
   DocumentSummary,
   UpdateDocumentRequest,
+  WsTicketRequest,
+  WsTicketResponse,
   LoginRequest,
   RegisterRequest,
   User,
@@ -17,6 +19,8 @@ export interface AuthApi {
   login(input: LoginRequest): Promise<User>;
   logout(): Promise<void>;
   me(): Promise<User>;
+  /** A single-use ticket (30 s) for opening a WebSocket. */
+  wsTicket(input: WsTicketRequest): Promise<WsTicketResponse>;
 }
 
 export interface WorkspacesApi {

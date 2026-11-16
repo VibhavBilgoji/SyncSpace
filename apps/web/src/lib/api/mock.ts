@@ -55,6 +55,10 @@ export function createMockApi(): Api {
       async logout() {
         sessionUserId = null;
       },
+      async wsTicket() {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        return { ticket: "mock-ticket", expires_at: new Date(Date.now() + 30_000).toISOString() };
+      },
       async me() {
         const user = users.find((u) => u.id === sessionUserId);
         if (!user) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
