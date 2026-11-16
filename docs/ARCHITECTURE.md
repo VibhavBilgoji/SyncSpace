@@ -98,6 +98,8 @@ sequenceDiagram
 For each dirty room: swap `dirty` to false **before** encoding; encode state and build the projection while holding the doc only for that; release; write `crdt_snapshot`, `blocks`, `updated_at`, `revision + 1`, `changed_since_version = true`; on failure set `dirty` back to true. Broadcast `SNAPSHOT_SAVED {revision}`. When the last client leaves or on SIGTERM, flush immediately before dropping the room.
 
 ### 3.4 Automatic version (every 10 min)
+**Deferred: this flow is future work and is not built for the submission (ADR-012, task 4.2).** It stays here as the design.
+
 For each room whose content changed since the last version (`changed_since_version`) and whose newest version is at least 10 minutes old: write an AUTOMATIC version (compressed snapshot, `created_by = null`, label "Periodic Snapshot"), clear the flag, prune AUTOMATIC versions beyond the newest 50, broadcast `VERSION_CREATED`. Also run once when the last editor leaves if the flag is set. Not audited.
 
 ### 3.5 Manual version

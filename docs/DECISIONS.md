@@ -46,3 +46,9 @@ Add a new record instead of editing an accepted one. Format: context, decision, 
 
 ## ADR-011: server integration tests use `MONGODB_URI`, not testcontainers
 **Decision.** Integration tests run against the MongoDB at `MONGODB_URI` (default `mongodb://localhost:27017`): a native `mongod` 8.0 locally and a `mongo:8.0` service container in CI, each test in a database of its own; no test starts containers itself, so they need no Docker.
+
+## ADR-012: automatic versions (FR15, task 4.2) are future work
+**Context.** The project has one developer and a deadline of Friday 20 November 2026. The remaining work was estimated at about 59 hours for 36 available (`docs/ROADMAP.md` section 4), and the automatic versions worker (a 10-minute timer, a "last editor leaves" trigger, retention of the newest 50) is the least visible part of version history: the demo shows saving a named version, listing versions and restoring one.
+**Decision.** The worker is not built for the submission. Versions are manual (`MANUAL`) and restore (`RESTORE`) only. The `AUTOMATIC` change type stays in the schema (`DATA_MODEL.md`) and in the generated types, so adding the worker later changes no contract.
+**Consequences.** FR15 is unmet and is listed as future work in `PRD.md`. The "Automatic version" flow in `ARCHITECTURE.md` section 3.4 is the design for it. Until it exists no version is ever pruned, so `restored_from_kept` is always true. Data-model invariant 5 (at most 50 automatic versions) has nothing to check. Reversing this decision means implementing task 4.2 as written in the roadmap.
+
