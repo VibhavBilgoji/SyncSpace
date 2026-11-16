@@ -8,6 +8,8 @@ use mongodb::{Client, Database, IndexModel};
 
 use crate::config::Config;
 
+pub mod users;
+
 /// How long the driver looks for a usable server before an operation fails. It is short so a
 /// MongoDB outage shows up in `/healthz` and at start-up within seconds, not after the
 /// driver's 30 s default. A `serverSelectionTimeoutMS` in the URI wins.
@@ -185,7 +187,7 @@ mod tests {
 
     /// Reads the index list out of `docs/DATA_MODEL.md` section 4.
     fn documented_indexes() -> Vec<IndexTuple> {
-        let doc = include_str!("../../../docs/DATA_MODEL.md");
+        let doc = include_str!("../../../../docs/DATA_MODEL.md");
         let section = doc.find("## 4. Indexes").unwrap();
         let start = doc[section..]
             .find(

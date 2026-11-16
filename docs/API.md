@@ -4,7 +4,7 @@ Base path for REST: `/api/v1`. JSON bodies use `snake_case`. Ids are 24-characte
 
 ## 1. Conventions
 
-**Auth.** `POST /auth/login` sets cookie `ss_session` (signed JWT, 24 h, `HttpOnly; Secure; SameSite=Lax; Path=/`). Every other endpoint except register, login and `/healthz` requires it.
+**Auth.** `POST /auth/register` and `POST /auth/login` set the cookie `ss_session`: a signed HS256 JWT valid for 24 hours, sent as `ss_session=<jwt>; Max-Age=86400; Path=/; HttpOnly; SameSite=Lax`, plus `Secure` whenever `COOKIE_SECURE` is true (always in production). Every endpoint except register, login and `/healthz` requires it; a missing, expired, forged or malformed session is always the same 401 `not signed in`. The token carries the user id (`sub`), `iat` and `exp` and is stateless: logout clears the cookie but cannot revoke a token before it expires.
 
 **Errors.** Always `{"error": {"code": "...", "message": "...", "details": {...}?}}`.
 
@@ -18,7 +18,7 @@ Base path for REST: `/api/v1`. JSON bodies use `snake_case`. Ids are 24-characte
 | 422 | `VALIDATION` | field rules failed; `details` maps field to message |
 | 405 | `METHOD_NOT_ALLOWED` | the path exists but not for this HTTP method |
 | 413 | `PAYLOAD_TOO_LARGE` | request body over 256 KiB (also when it is streamed without a Content-Length) |
-| 429 | `RATE_LIMITED` | too many requests |
+| 429 | `RATE_LIMITED` | too many requests; also on register and login while the server is already hashing as many passwords as it allows (a request waits up to 5 s for its turn) |
 | 500 | `INTERNAL` | a server fault. The message is always "internal server error"; the cause is only in the server log |
 
 Every response the server produces follows this format, including unknown paths (404), wrong methods (405) and panics caught by the server (500). A body that is not JSON, is truncated JSON, or is sent without `Content-Type: application/json` gives 400. Valid JSON of the wrong shape (a missing field, a wrong type) gives 422 with the reason in `details.body`; field rules checked by a handler map each field to its message in `details`.
@@ -33,11 +33,13 @@ Role column: minimum role needed in the workspace the resource belongs to.
 | Method and path | Role | Body | Response |
 |---|---|---|---|
 | `GET /healthz` | public | | 200 `{status: "ok", mongo: "ok"}`; 503 `{status: "degraded", mongo: "error"}` when MongoDB cannot be reached or a ping takes more than 2 s. The cause is never in the answer. **Served at the server root, not under `/api/v1`** (Render's health check and the deploy checklist call `/healthz`) |
-| `POST /auth/register` | public | `{name, email, password}` (password 8 to 128 chars) | 201 `User` + session cookie |
-| `POST /auth/login` | public | `{email, password}` | 200 `User` + session cookie; 401 on bad credentials (same message for unknown email) |
-| `POST /auth/logout` | user | | 204, clears cookie |
-| `GET /auth/me` | user | | `User` |
+| `POST /auth/register` | public | `{name, email, password}` (rules below) | 201 `User` + session cookie; 409 when the email is taken; 422 with `details` for every field that breaks a rule |
+| `POST /auth/login` | public | `{email, password}` | 200 `User` + session cookie; 401 `invalid email or password` for any failure, byte for byte the same for an unknown email, a wrong password and over-long input |
+| `POST /auth/logout` | user | | 204 and a `Set-Cookie` that expires `ss_session` at once; 401 without a valid session |
+| `GET /auth/me` | user | | `User`; 401 when the session is not valid or the account no longer exists |
 | `POST /auth/ws-ticket` | member | `{scope: "doc" | "workspace", id}` | `{ticket, expires_at}` valid 30 s, single use |
+
+**Account rules.** `name`: trimmed, 1 to 80 characters, no control characters. `email`: trimmed and stored lower-cased (so `Ada@Example.com` and `ada@example.com` are one account), ASCII only, at most 254 characters, a plain `local@domain.tld` address. `password`: 8 to 128 characters counted as characters and not bytes, never trimmed or changed, stored only as an argon2id hash (19 MiB, 2 iterations, 1 lane) and never returned. A taken email is a 409; two simultaneous registrations of one email give one 201 and one 409. A login for an unknown email still verifies a dummy hash, so it takes as long as a wrong password. Registration, login and logout are not audited (they are not in the audit table of `DATA_MODEL.md`).
 
 ### Workspaces and members
 | Method and path | Role | Body | Response |

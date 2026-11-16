@@ -54,7 +54,7 @@ One crate, two targets: native (used by the server) and `wasm32-unknown-unknown`
 |---|---|
 | `config` | env vars (`DEPLOYMENT.md` §5), fail fast if missing |
 | `db` | Mongo client, typed collections, index creation, repositories per collection |
-| `auth` | argon2id, JWT cookie, ws tickets (HMAC, 30 s, single use via in-memory set), `Origin` check |
+| `auth` | argon2id on blocking threads (at most 4 at a time, section 5), JWT session cookie, `AuthUser` extractor, ws tickets (HMAC, 30 s, single use via in-memory set), `Origin` check |
 | `rbac` | `require_role(workspace, user, min_role)`; one place for the permission matrix |
 | `api` | Axum routers per resource; request validation; maps errors to the error format |
 | `hub` | rooms: `DocRoom` (Yrs doc, connections, awareness, dirty flags) and `WorkspaceRoom` (connections); broadcast; role updates to live sessions |
@@ -145,7 +145,7 @@ JWT expiry closes sockets with 4001 at the next frame or ping. The client keeps 
 
 ## 5. Security
 
-argon2id (memory 19 MiB, 2 iterations, parallelism 1, the OWASP baseline); JWT HS256 with a 32-byte secret; cookie `HttpOnly; Secure; SameSite=Lax`; CORS only for `ALLOWED_ORIGINS`; WebSocket `Origin` check; 1 MiB frame cap; per-connection token buckets; request body limit 256 KiB on REST; generic login error; uniform 404 for resources outside the caller's workspaces; no stack traces in responses; `tracing` logs without passwords, tokens or tickets.
+argon2id (memory 19 MiB, 2 iterations, parallelism 1, the OWASP baseline); JWT HS256 with a 32-byte secret; cookie `HttpOnly; Secure; SameSite=Lax`; CORS only for `ALLOWED_ORIGINS`; WebSocket `Origin` check; 1 MiB frame cap; per-connection token buckets; request body limit 256 KiB on REST; generic login error; uniform 404 for resources outside the caller's workspaces; no stack traces in responses; `tracing` logs without passwords, tokens or tickets. Each password hash needs 19 MiB and Render's free instance has 512 MB, so hashing runs on blocking threads behind a limit of 4 at a time (about 76 MiB); a request that cannot get its turn within 5 s gets 429. Without the limit a few dozen parallel logins, or one attacker, would exhaust the memory. A login for an unknown email verifies a dummy hash so it takes as long as one for a wrong password. Session tokens are verified with HS256 only and no clock leeway.
 
 ## 6. Failure modes
 

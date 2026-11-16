@@ -12,11 +12,13 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use axum::Router;
 use mongodb::Database;
 use server::app::{self, AppState};
+use server::auth::AuthService;
 use server::config::Config;
 use server::db;
 use tokio::net::TcpListener;
@@ -140,6 +142,10 @@ pub struct AppOptions {
     pub mongo: MongoMode,
     /// The `ALLOWED_ORIGINS` value.
     pub origins: &'static str,
+    /// The `COOKIE_SECURE` value.
+    pub cookie_secure: bool,
+    /// Password-hashing capacity and how long a request waits for it (the defaults when `None`).
+    pub hash_limits: Option<(usize, Duration)>,
 }
 
 impl Default for AppOptions {
@@ -147,6 +153,8 @@ impl Default for AppOptions {
         Self {
             mongo: MongoMode::Real,
             origins: ALLOWED_ORIGIN,
+            cookie_secure: false,
+            hash_limits: None,
         }
     }
 }
@@ -156,6 +164,8 @@ pub struct TestApp {
     pub addr: SocketAddr,
     pub client: reqwest::Client,
     pub db: Database,
+    /// The password-hashing service the app uses, so a test can exhaust its capacity.
+    pub auth: Arc<AuthService>,
     _test_db: Option<TestDb>,
     shutdown: Option<oneshot::Sender<()>>,
     server: Option<JoinHandle<std::io::Result<()>>>,
@@ -184,19 +194,21 @@ impl TestApp {
         options: AppOptions,
         extra: impl FnOnce(Router<AppState>) -> Router<AppState>,
     ) -> Self {
+        let secure = options.cookie_secure.to_string();
+        let config_for = |uri: &str, db_name: &str| {
+            let mut vars = env_map(uri, db_name, options.origins);
+            vars.insert("COOKIE_SECURE".to_string(), secure.clone());
+            Config::from_map(&vars).unwrap()
+        };
         let (test_db, config) = match options.mongo {
             MongoMode::Real => {
                 let test_db = TestDb::connect().await;
-                let config = test_config(&mongodb_uri(), &test_db.name, options.origins);
+                let config = config_for(&mongodb_uri(), &test_db.name);
                 (Some(test_db), config)
             }
             MongoMode::Unreachable => (
                 None,
-                test_config(
-                    UNREACHABLE_URI,
-                    "syncspace_test_unreachable",
-                    options.origins,
-                ),
+                config_for(UNREACHABLE_URI, "syncspace_test_unreachable"),
             ),
         };
         let db = db::connect(&config).await.unwrap();
@@ -204,10 +216,11 @@ impl TestApp {
             db::ensure_indexes(&db).await.unwrap();
         }
 
-        let state = AppState {
-            db: db.clone(),
-            config: Arc::new(config.clone()),
-        };
+        let mut state = AppState::new(db.clone(), Arc::new(config.clone())).unwrap();
+        if let Some((permits, wait)) = options.hash_limits {
+            state.auth = Arc::new(AuthService::with_limits(permits, wait).unwrap());
+        }
+        let auth = state.auth.clone();
         let router = app::apply_layers(extra(app::routes()).with_state(state), &config);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -224,6 +237,7 @@ impl TestApp {
                 .build()
                 .unwrap(),
             db,
+            auth,
             _test_db: test_db,
             shutdown: Some(shutdown),
             server: Some(server),
@@ -253,9 +267,31 @@ impl Drop for TestApp {
     }
 }
 
-/// Captures what `tracing` writes, so a test can read the log.
-#[derive(Clone, Default)]
-pub struct LogCapture(Arc<Mutex<Vec<u8>>>);
+/// What `tracing` wrote in this test process, shared by every test in it.
+static LOG: OnceLock<Arc<Mutex<Vec<u8>>>> = OnceLock::new();
+
+/// The shared log buffer. The first call installs a process-wide subscriber that writes to it.
+///
+/// A subscriber per test thread would be simpler, but `tracing` remembers per call site whether
+/// anyone listens, and a test thread that reaches a call site first with no subscriber can
+/// make it deaf for the others. One subscriber for the whole process cannot be raced.
+fn shared_log() -> Arc<Mutex<Vec<u8>>> {
+    LOG.get_or_init(|| {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(LogSink(buffer.clone()))
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+        // Another subscriber may already be set in this process; then there is nothing to do.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        buffer
+    })
+    .clone()
+}
+
+#[derive(Clone)]
+struct LogSink(Arc<Mutex<Vec<u8>>>);
 
 pub struct LogWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -270,7 +306,7 @@ impl std::io::Write for LogWriter {
     }
 }
 
-impl<'a> MakeWriter<'a> for LogCapture {
+impl<'a> MakeWriter<'a> for LogSink {
     type Writer = LogWriter;
 
     fn make_writer(&'a self) -> Self::Writer {
@@ -278,19 +314,25 @@ impl<'a> MakeWriter<'a> for LogCapture {
     }
 }
 
+/// A view of the log from the moment it was started.
+///
+/// Tests run in parallel and share the log, so lines of other tests can appear in it. Assert
+/// that strings only this test produces are present, and that strings that must never be
+/// logged are absent; both stay true whatever else is logged meanwhile.
+pub struct LogCapture {
+    buffer: Arc<Mutex<Vec<u8>>>,
+    from: usize,
+}
+
 impl LogCapture {
-    /// Routes this thread's `tracing` output here until the guard is dropped. Tests use the
-    /// default single-threaded runtime, so the server task runs on this thread too.
-    pub fn install(&self) -> tracing::subscriber::DefaultGuard {
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(self.clone())
-            .with_ansi(false)
-            .with_max_level(tracing::Level::DEBUG)
-            .finish();
-        tracing::subscriber::set_default(subscriber)
+    pub fn start() -> Self {
+        let buffer = shared_log();
+        let from = buffer.lock().unwrap().len();
+        Self { buffer, from }
     }
 
     pub fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+        let bytes = self.buffer.lock().unwrap();
+        String::from_utf8_lossy(&bytes[self.from..]).into_owned()
     }
 }

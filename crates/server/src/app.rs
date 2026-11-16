@@ -21,6 +21,8 @@ use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::{AllowCredentials, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::auth::password::HashError;
+use crate::auth::{self, AuthService};
 use crate::config::Config;
 use crate::error::ApiError;
 use crate::health;
@@ -36,14 +38,32 @@ const CORS_MAX_AGE: Duration = Duration::from_secs(600);
 pub struct AppState {
     pub db: Database,
     pub config: Arc<Config>,
+    pub auth: Arc<AuthService>,
+}
+
+impl AppState {
+    /// The state with the default password-hashing limits.
+    pub fn new(db: Database, config: Arc<Config>) -> Result<Self, HashError> {
+        Ok(Self {
+            db,
+            config,
+            auth: Arc::new(AuthService::new()?),
+        })
+    }
 }
 
 /// Routes without middleware.
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/healthz", get(health::healthz))
+        .nest("/api/v1", api_routes())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
+}
+
+/// Everything under `/api/v1`.
+fn api_routes() -> Router<AppState> {
+    Router::new().nest("/auth", auth::routes())
 }
 
 /// The production app: routes plus middleware.
