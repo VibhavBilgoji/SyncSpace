@@ -95,7 +95,8 @@ impl RouteSpec {
 
 /// Every REST route under `/api/v1`.
 pub fn api_route_table() -> Vec<RouteSpec> {
-    use crate::rbac::Role::{Admin, Viewer};
+    use crate::documents::handlers as d;
+    use crate::rbac::Role::{Admin, Editor, Viewer};
     use crate::workspaces::handlers as w;
     vec![
         RouteSpec::new("POST", "/auth/register", Access::Public, || {
@@ -144,6 +145,27 @@ pub fn api_route_table() -> Vec<RouteSpec> {
             Access::Member(Admin),
             || delete(w::remove_member),
         ),
+        RouteSpec::new(
+            "GET",
+            "/workspaces/{wid}/documents",
+            Access::Member(Viewer),
+            || get(d::list_documents),
+        ),
+        RouteSpec::new(
+            "POST",
+            "/workspaces/{wid}/documents",
+            Access::Member(Editor),
+            || post(d::create_document),
+        ),
+        RouteSpec::new("GET", "/documents/{id}", Access::Member(Viewer), || {
+            get(d::get_document)
+        }),
+        RouteSpec::new("PATCH", "/documents/{id}", Access::Member(Editor), || {
+            patch(d::patch_document)
+        }),
+        RouteSpec::new("DELETE", "/documents/{id}", Access::Member(Admin), || {
+            delete(d::delete_document)
+        }),
     ]
 }
 

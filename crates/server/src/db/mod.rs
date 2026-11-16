@@ -8,6 +8,7 @@ use mongodb::{Client, Database, IndexModel};
 
 use crate::config::Config;
 
+pub mod documents;
 pub mod users;
 pub mod workspaces;
 

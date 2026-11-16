@@ -66,6 +66,8 @@ Role column: minimum role needed in the workspace the resource belongs to.
 | `PATCH /documents/:id` | EDITOR | `{title?, icon?}` | `Document` |
 | `DELETE /documents/:id` | ADMIN | | 204; open sockets closed with 4004; versions deleted; audit DOC_DELETE |
 
+**Document rules.** `title`: trimmed, 1 to 120 characters, no control characters. `icon`: optional, trimmed, 1 to 16 characters with no control characters (one emoji or a short icon key); a document created without one gets `📄`. A new document holds **one empty PARAGRAPH block**, so the editor can be used at once. `blocks` in a `Document` are the blocks as of the last snapshot (written at most every 5 s, task 2.4), never the CRDT itself. A document that is in a workspace the caller is not a member of, and one that does not exist, give the same 404 with the same message. The role is checked before the body is read. Renaming (`PATCH`) is not audited; creating and deleting are (DOC_CREATE, DOC_DELETE with the title). Deleting a document also deletes its versions. Closing the open sockets of a deleted document with 4004 is done by the hub (task 2.3).
+
 ### Versions
 | Method and path | Role | Body | Response |
 |---|---|---|---|

@@ -27,6 +27,16 @@ pub enum AuditEvent {
         from: Role,
         to: Role,
     },
+    /// A document was created.
+    DocCreate {
+        document_id: ObjectId,
+        title: String,
+    },
+    /// A document was deleted; its title is kept because the document is gone.
+    DocDelete {
+        document_id: ObjectId,
+        title: String,
+    },
 }
 
 impl AuditEvent {
@@ -35,6 +45,8 @@ impl AuditEvent {
             Self::MemberAdd { .. } => "MEMBER_ADD",
             Self::MemberRemove { .. } => "MEMBER_REMOVE",
             Self::RoleChange { .. } => "ROLE_CHANGE",
+            Self::DocCreate { .. } => "DOC_CREATE",
+            Self::DocDelete { .. } => "DOC_DELETE",
         }
     }
 
@@ -42,6 +54,7 @@ impl AuditEvent {
         match self {
             Self::MemberAdd { .. } | Self::MemberRemove { .. } => "WORKSPACE",
             Self::RoleChange { .. } => "MEMBER",
+            Self::DocCreate { .. } | Self::DocDelete { .. } => "DOCUMENT",
         }
     }
 
@@ -51,6 +64,9 @@ impl AuditEvent {
         match self {
             Self::MemberAdd { .. } | Self::MemberRemove { .. } => workspace_id.to_hex(),
             Self::RoleChange { user_id, .. } => user_id.to_hex(),
+            Self::DocCreate { document_id, .. } | Self::DocDelete { document_id, .. } => {
+                document_id.to_hex()
+            }
         }
     }
 
@@ -65,6 +81,9 @@ impl AuditEvent {
             }
             Self::RoleChange { from, to, .. } => {
                 doc! { "from": from.as_str(), "to": to.as_str() }
+            }
+            Self::DocCreate { title, .. } | Self::DocDelete { title, .. } => {
+                doc! { "title": title }
             }
         }
     }
@@ -158,6 +177,36 @@ mod tests {
             row.get_document("metadata").unwrap(),
             &doc! { "from": "VIEWER", "to": "ADMIN" }
         );
+    }
+
+    #[test]
+    fn document_events_follow_the_documented_mapping() {
+        let (workspace, actor, document) = ids();
+        for (event, action) in [
+            (
+                AuditEvent::DocCreate {
+                    document_id: document,
+                    title: "Plan".into(),
+                },
+                "DOC_CREATE",
+            ),
+            (
+                AuditEvent::DocDelete {
+                    document_id: document,
+                    title: "Plan".into(),
+                },
+                "DOC_DELETE",
+            ),
+        ] {
+            let row = event.to_row(workspace, actor);
+            assert_eq!(row.get_str("action").unwrap(), action);
+            assert_eq!(row.get_str("entity_type").unwrap(), "DOCUMENT");
+            assert_eq!(row.get_str("entity_id").unwrap(), document.to_hex());
+            assert_eq!(
+                row.get_document("metadata").unwrap(),
+                &doc! { "title": "Plan" }
+            );
+        }
     }
 
     #[test]

@@ -22,6 +22,9 @@ use crate::api_types::{
 };
 use crate::auth::handlers::UserResponse;
 use crate::auth::validation::{LoginInput, RegisterInput};
+use crate::documents::validation::{
+    CreateInput as CreateDocumentInput, PatchInput as PatchDocumentInput,
+};
 use crate::rbac::Role;
 use crate::workspaces::handlers::{MemberResponse, SummaryResponse, WorkspaceResponse};
 use crate::workspaces::validation::{AddMemberInput, CreateInput, PatchInput, RoleInput};
@@ -82,6 +85,8 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     PatchInput::export_all(config)?;
     AddMemberInput::export_all(config)?;
     RoleInput::export_all(config)?;
+    CreateDocumentInput::export_all(config)?;
+    PatchDocumentInput::export_all(config)?;
     // Types of endpoints that come later (`api_types`).
     BlockType::export_all(config)?;
     Block::export_all(config)?;

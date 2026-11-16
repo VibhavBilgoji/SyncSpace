@@ -7,6 +7,7 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod documents;
 pub mod error;
 pub mod extract;
 pub mod health;
