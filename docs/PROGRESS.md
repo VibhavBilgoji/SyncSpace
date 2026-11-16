@@ -7,7 +7,7 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | Phase | Status | Tag |
 |---|---|---|
 | 0 Bootstrap and spike | complete | `phase-0` on `e2bb9b1` |
-| 1 Accounts, workspaces, design system | in progress (1.1 and 1.2 done, 1.3 implemented, CI pending) | |
+| 1 Accounts, workspaces, design system | in progress (1.1, 1.2, 1.3 done; 1.4 to 1.6 planned for Monday) | |
 | 2 Documents and live editing | not started | |
 | 3 Collaboration details | not started | |
 | 4 Version history | not started | |
@@ -27,7 +27,8 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2026-11-16 | 1.1 Server skeleton | done (PR #5, green, merged as `dfd11ab`) | 59 new: 22 unit (config 12, error 6, db 4), 24 API integration, 9 index integration, 4 process-level; all pass locally on MongoDB 8.0.23 | Config, tracing, `/healthz`, MongoDB connection and indexes, error format, 256 KiB body limit, CORS, panic net, graceful shutdown. Each protection was disabled in turn and a test failed every time. CI now has a `mongo:8.0` service. See "MongoDB version alignment" |
 | 2026-11-16 | Coverage gates and ADR-011 | done (PR #6, green, merged as `144e57e`) | 0 (CI and docs) | `sync-crdt` 99.07% and `server` 88.37% line coverage, both gates blocking from now. Testcontainers question closed by ADR-011 |
 | 2026-11-16 | 1.2 Auth | done (PR #7, `rust`, `web` and `e2e` green, merged as `64fa51e`) | 66 new: 37 unit (password 7, session 12, cookie 9, validation 9) and 29 integration against MongoDB 8.0.23; 1.1 tests unchanged | Register, login, logout, `me`; argon2id; HS256 JWT in an `HttpOnly` cookie; `AuthUser` extractor. Ten protections were disabled in turn and a test failed every time. A real-binary walkthrough with `curl` and a cookie jar passed and its log held no secret. GitGuardian flagged the fake passwords in the test fixtures; they were replaced with plain-word phrases, the old commit still holds them, and the findings were marked as false positives in the GitGuardian dashboard before the merge |
-| 2026-11-16 | 1.3 Workspaces, members, RBAC, audit writer | implemented, **CI run pending** | 50 new: 15 unit (rbac 4, audit 5, workspace validation 5, db 1) and 35 integration against MongoDB 8.0.23 (`workspaces.rs` 12, `members.rs` 17, `rbac_matrix.rs` 6) | Eight `/workspaces` endpoints, `rbac::require_role`, `audit::record` for MEMBER_ADD, MEMBER_REMOVE and ROLE_CHANGE, and a route table the router is built from. Nine protections were disabled in turn (owner guard in the handler and in the database update, role check, non-member 404, audit insert, audit content, duplicate-member filter, assignment cleanup, the table against `API.md`) and a test failed every time. Server line coverage 94.51%. A real-binary walkthrough (register two users, create, add, refuse, promote, list, refuse the owner, remove, 404 afterwards) passed and its log held no email, password or cookie. One full `cargo test --workspace` run failed in `rbac_matrix` at `ensure_indexes` after a 43-minute stall of the machine; the rerun passed (see open questions) |
+| 2026-11-16 | 1.3 Workspaces, members, RBAC, audit writer | done (PR #8, all four checks green, merged as `924c98f`) | 50 new: 15 unit (rbac 4, audit 5, workspace validation 5, db 1) and 35 integration against MongoDB 8.0.23 (`workspaces.rs` 12, `members.rs` 17, `rbac_matrix.rs` 6) | Eight `/workspaces` endpoints, `rbac::require_role`, `audit::record` for MEMBER_ADD, MEMBER_REMOVE and ROLE_CHANGE, and a route table the router is built from. Nine protections were disabled in turn (owner guard in the handler and in the database update, role check, non-member 404, audit insert, audit content, duplicate-member filter, assignment cleanup, the table against `API.md`) and a test failed every time. Server line coverage 94.51%. A real-binary walkthrough (register two users, create, add, refuse, promote, list, refuse the owner, remove, 404 afterwards) passed and its log held no email, password or cookie. One full `cargo test --workspace` run failed in `rbac_matrix` at `ensure_indexes` after a 43-minute stall of the machine; the rerun passed (see open questions) |
+| 2026-11-16 | Friday submission plan | done (docs only) | 0 | `docs/ROADMAP.md` rewritten for the deadline of Friday 20 November: MUST, SHOULD and post-submission lists, four daily batches plus Friday morning, deploy on Wednesday, tests scaled to the deadline, and a cut ladder. The plan does not fit the time as written: see "Friday plan" below |
 
 ## Decisions made during implementation
 
@@ -92,7 +93,24 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 - 1.3: the member list keeps the array's own order (which is join order, because members are appended) and only lifts the owner to the front. Sorting by `joined_at` was flaky: two members added in the same millisecond tie.
 - 1.3 (test harness): `tests/common` gained `TestApp::account` (inserts a user and signs a session with no password hashing), `TestApp::call`, `TestApp::audit_rows` and `TestWorkspace::new(&app).await.with_member(Role::Viewer).await`, as `TESTING.md` asks.
 
-## Open questions
+## Friday plan (written Monday 16 November)
+
+The full plan is `docs/ROADMAP.md`. Summary and the points that need a decision:
+
+- **State.** Tasks 0.1 to 0.3 and 1.1 to 1.3 are merged on `main` (`924c98f`). **1.4 is not merged and not started**, although the deadline message said it was; it is the first task of Monday.
+- **Batches.** Mon: 1.4, 1.5, 1.6, 2.1, 2.2. Tue: 2.3 to 2.6. Wed: 3.1, 3.2, 4.1 to 4.3, 5.1 and the **first deploy (7.4)**. Thu: 3.3, 4.4, 4.5, 5.2, 5.3, 6.1 to 6.3, 7.5. Fri morning: checks only. One PR per batch, one commit per task, merged only on green CI.
+- **Estimated load.** About 63.5 hours of work (Mon 12.5, Tue 12, Wed 18, Thu 21) against about 48 hours of working time. These are estimates from the pace of tasks 1.1 to 1.3, not measurements. The seven cuts of the ladder in the roadmap free about 9.5 hours and leave about 6 over.
+- **Tests scaled.** Server logic and every permission check keep unit and integration tests; component tests for the main states; e2e only scenarios 1, 2, 3, 6 and 7. Scenarios 4, 5, 8, 9 and 10 are post-submission.
+
+## Open questions (Friday plan)
+
+(Items added by the Friday plan; the earlier open questions follow below.)
+
+- **Decision needed: the plan is about 6 hours over after all seven cuts.** Choose one: (a) longer days, (b) demote the audit screens (6.3 and the audit part of 6.2) to post-submission, or (c) demote the Kanban board (5.1 to 5.3, about 9 hours). Until you choose, Thursday is where the schedule will break first.
+- **Decision needed: coverage.** The deadline message said coverage stays report-only, but the two Rust gates (`sync-crdt` 90%, `server` 75%) have been blocking since PR #6, and you asked then to add tests rather than lower a gate. They are at 99% and 94.5% today, so they will only block if a large piece of new code lands with few tests. I left them blocking and added **no** web coverage gate. Say "report-only" and I will change `.github/scripts/coverage-gate.sh` in the Monday batch (a one-line change that keeps printing the numbers).
+- **Decision needed: scope trims inside MUST tasks.** The cut ladder in the roadmap proposes smaller versions of some MUST tasks (for example no automatic versions worker, no audit export). They are proposals; nothing is trimmed until you agree.
+
+## Open questions (earlier)
 
 (Conflicts between docs, unclear requirements, things the team must decide.)
 
