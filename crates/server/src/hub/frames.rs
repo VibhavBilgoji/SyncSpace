@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::api_types::VersionSummary;
+
 /// A frame the server sends as text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -19,6 +21,8 @@ pub enum ServerFrame {
     PresenceCount { active_sockets: u32 },
     /// The document was written to MongoDB as this revision ("rev_N · Saved to MongoDB").
     SnapshotSaved { revision: i64, saved_at: String },
+    /// A manual version was saved: refreshes an open history panel.
+    VersionCreated(VersionSummary),
 }
 
 /// A frame the client sends as text.

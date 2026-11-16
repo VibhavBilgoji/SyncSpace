@@ -24,7 +24,7 @@ use server::rbac::{Access, Role};
 /// Documented routes of features that later tasks build. When a task adds them to the table,
 /// it also adds a fixture, and the entry here stops mattering.
 const NOT_BUILT_YET: &[&str] = &[
-    "/documents/{id}/versions",
+    "/documents/{id}/versions/{n}/restore",
     "/workspaces/{wid}/boards",
     "/boards/",
     "/tasks/",
@@ -136,6 +136,18 @@ fn fixture(key: &str) -> Option<Fixture> {
             ok: 204,
             body: none,
         },
+        "GET /documents/{id}/versions" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "POST /documents/{id}/versions" => Fixture {
+            ok: 201,
+            body: |_| Some(json!({"label": "Matrix version"})),
+        },
+        "GET /documents/{id}/versions/{n}" => Fixture {
+            ok: 200,
+            body: none,
+        },
         _ => return None,
     })
 }
@@ -195,6 +207,22 @@ async fn workspace_for_a_case(app: &TestApp) -> (TestWorkspace<'_>, Ctx) {
     server::db::documents::insert(&app.db, &record)
         .await
         .unwrap();
+    // Version 1, so the routes under `/versions/{n}` have something to find.
+    server::db::versions::insert_next(
+        &app.db,
+        server::db::versions::NewVersion {
+            document_id: record.id,
+            workspace_id: workspace.id,
+            change_type: server::db::versions::MANUAL,
+            label: Some("First".to_string()),
+            restored_from: None,
+            created_by: Some(workspace.owner.id),
+            state: &record.crdt_snapshot.as_ref().unwrap().bytes,
+        },
+        50,
+    )
+    .await
+    .unwrap();
     let ctx = Ctx {
         workspace_hex: workspace.hex(),
         target,
@@ -236,7 +264,8 @@ async fn every_route_gives_every_kind_of_caller_the_documented_status() {
             let path = format!("/api/v1{}", spec.path)
                 .replace("{wid}", &ctx.workspace_hex)
                 .replace("{uid}", &ctx.target.id.to_hex())
-                .replace("{id}", &ctx.doc_hex);
+                .replace("{id}", &ctx.doc_hex)
+                .replace("{n}", "1");
 
             let (status, body) = app
                 .call(spec.method, &path, account, (fixture.body)(&ctx))
@@ -281,7 +310,8 @@ async fn a_refused_call_changes_nothing() {
             let path = format!("/api/v1{}", spec.path)
                 .replace("{wid}", &ctx.workspace_hex)
                 .replace("{uid}", &ctx.target.id.to_hex())
-                .replace("{id}", &ctx.doc_hex);
+                .replace("{id}", &ctx.doc_hex)
+                .replace("{n}", "1");
             let (status, _) = app
                 .call(
                     spec.method,
@@ -323,6 +353,9 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "GET /documents/{id}",
         "PATCH /documents/{id}",
         "DELETE /documents/{id}",
+        "GET /documents/{id}/versions",
+        "POST /documents/{id}/versions",
+        "GET /documents/{id}/versions/{n}",
     ];
     let with_fixture: BTreeSet<String> = probes
         .iter()

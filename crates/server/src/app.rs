@@ -174,6 +174,24 @@ pub fn api_route_table() -> Vec<RouteSpec> {
         RouteSpec::new("DELETE", "/documents/{id}", Access::Member(Admin), || {
             delete(d::delete_document)
         }),
+        RouteSpec::new(
+            "GET",
+            "/documents/{id}/versions",
+            Access::Member(Viewer),
+            || get(crate::versions::handlers::list_versions),
+        ),
+        RouteSpec::new(
+            "POST",
+            "/documents/{id}/versions",
+            Access::Member(Editor),
+            || post(crate::versions::handlers::save_version),
+        ),
+        RouteSpec::new(
+            "GET",
+            "/documents/{id}/versions/{n}",
+            Access::Member(Viewer),
+            || get(crate::versions::handlers::get_version),
+        ),
     ]
 }
 
