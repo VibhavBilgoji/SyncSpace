@@ -55,7 +55,7 @@ One crate, two targets: native (used by the server) and `wasm32-unknown-unknown`
 | `config` | env vars (`DEPLOYMENT.md` §5), fail fast if missing |
 | `db` | Mongo client, typed collections, index creation, repositories per collection |
 | `auth` | argon2id on blocking threads (at most 4 at a time, section 5), JWT session cookie, `AuthUser` extractor, ws tickets (HMAC, 30 s, single use via in-memory set), `Origin` check |
-| `rbac` | `require_role(workspace, user, min_role)`; one place for the permission matrix |
+| `rbac` | `require_role(workspace, user, min_role)`; one place for the permission matrix: a non-member gets 404, a member with too low a role 403. The router under `/api/v1` is built from `app::api_route_table()` (method, path, access, handler per route), which `tests/rbac_matrix.rs` walks and compares with `API.md` |
 | `api` | Axum routers per resource; request validation; maps errors to the error format |
 | `hub` | rooms: `DocRoom` (Yrs doc, connections, awareness, dirty flags) and `WorkspaceRoom` (connections); broadcast; role updates to live sessions |
 | `snapshot` | 5 s worker and final flush |

@@ -9,6 +9,21 @@ use mongodb::{Client, Database, IndexModel};
 use crate::config::Config;
 
 pub mod users;
+pub mod workspaces;
+
+/// MongoDB's error code for a violated unique index.
+const DUPLICATE_KEY: i32 = 11000;
+
+/// Whether `error` is a unique index rejecting a value. Inserts report it as a write error and
+/// `findOneAndUpdate` as a command error, so both are checked.
+pub fn is_duplicate_key(error: &mongodb::error::Error) -> bool {
+    use mongodb::error::{ErrorKind, WriteFailure};
+    match error.kind.as_ref() {
+        ErrorKind::Write(WriteFailure::WriteError(write)) => write.code == DUPLICATE_KEY,
+        ErrorKind::Command(command) => command.code == DUPLICATE_KEY,
+        _ => false,
+    }
+}
 
 /// How long the driver looks for a usable server before an operation fails. It is short so a
 /// MongoDB outage shows up in `/healthz` and at start-up within seconds, not after the

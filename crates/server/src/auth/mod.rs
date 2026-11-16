@@ -7,7 +7,7 @@
 
 pub mod cookie;
 mod extractor;
-mod handlers;
+pub mod handlers;
 pub mod password;
 pub mod session;
 pub mod validation;
@@ -15,11 +15,8 @@ pub mod validation;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
-use axum::routing::{get, post};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::app::AppState;
 use crate::error::ApiError;
 
 pub use extractor::AuthUser;
@@ -31,15 +28,6 @@ pub const MAX_CONCURRENT_HASHES: usize = 4;
 
 /// How long a request waits for its turn before it is answered with 429.
 pub const HASH_QUEUE_WAIT: Duration = Duration::from_secs(5);
-
-/// The routes under `/api/v1/auth`.
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/register", post(handlers::register))
-        .route("/login", post(handlers::login))
-        .route("/logout", post(handlers::logout))
-        .route("/me", get(handlers::me))
-}
 
 /// Runs password hashing off the async threads and at most [`MAX_CONCURRENT_HASHES`] at a time.
 pub struct AuthService {

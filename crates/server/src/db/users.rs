@@ -3,14 +3,12 @@
 use mongodb::bson::DateTime;
 use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
-use mongodb::error::{ErrorKind, WriteFailure};
 use mongodb::{Collection, Database};
 use serde::{Deserialize, Serialize};
 
-pub const COLLECTION: &str = "users";
+use super::is_duplicate_key;
 
-/// MongoDB's error code for a violated unique index.
-const DUPLICATE_KEY: i32 = 11000;
+pub const COLLECTION: &str = "users";
 
 /// A user document. `email` is stored lower-cased, which is what makes the unique index on it
 /// case-insensitive; `password_hash` is an argon2id PHC string.
@@ -58,9 +56,15 @@ pub async fn find_by_id(
     collection(db).find_one(doc! { "_id": id }).await
 }
 
-fn is_duplicate_key(error: &mongodb::error::Error) -> bool {
-    matches!(
-        error.kind.as_ref(),
-        ErrorKind::Write(WriteFailure::WriteError(write)) if write.code == DUPLICATE_KEY
-    )
+/// The users with these ids, in no particular order. Ids with no user are simply absent.
+pub async fn find_many(
+    db: &Database,
+    ids: &[ObjectId],
+) -> Result<Vec<User>, mongodb::error::Error> {
+    use futures_util::TryStreamExt;
+    collection(db)
+        .find(doc! { "_id": { "$in": ids.to_vec() } })
+        .await?
+        .try_collect()
+        .await
 }
