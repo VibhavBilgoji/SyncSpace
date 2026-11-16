@@ -4,4 +4,4 @@ import type { SocketErrorCode } from "./SocketErrorCode";
 /**
  * A frame the server sends as text.
  */
-export type ServerFrame = { "type": "PONG", t: number, } | { "type": "ERROR", code: SocketErrorCode, message: string, } | { "type": "PRESENCE_COUNT", active_sockets: number, };
+export type ServerFrame = { "type": "PONG", t: number, } | { "type": "ERROR", code: SocketErrorCode, message: string, } | { "type": "PRESENCE_COUNT", active_sockets: number, } | { "type": "SNAPSHOT_SAVED", revision: number, saved_at: string, };

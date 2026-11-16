@@ -12,6 +12,7 @@ pub mod error;
 pub mod extract;
 pub mod health;
 pub mod hub;
+pub mod metrics;
 pub mod rbac;
 pub mod spike;
 pub mod telemetry;

@@ -17,6 +17,8 @@ pub enum ServerFrame {
     },
     /// How many sockets are open on the document ("Active Sockets: N").
     PresenceCount { active_sockets: u32 },
+    /// The document was written to MongoDB as this revision ("rev_N · Saved to MongoDB").
+    SnapshotSaved { revision: i64, saved_at: String },
 }
 
 /// A frame the client sends as text.
@@ -69,6 +71,13 @@ mod tests {
         assert_eq!(
             value(ServerFrame::PresenceCount { active_sockets: 3 }),
             json!({"type": "PRESENCE_COUNT", "active_sockets": 3})
+        );
+        assert_eq!(
+            value(ServerFrame::SnapshotSaved {
+                revision: 4,
+                saved_at: "2026-11-17T01:02:03.004Z".into()
+            }),
+            json!({"type": "SNAPSHOT_SAVED", "revision": 4, "saved_at": "2026-11-17T01:02:03.004Z"})
         );
         assert_eq!(
             value(ServerFrame::error(

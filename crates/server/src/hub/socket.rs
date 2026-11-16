@@ -250,6 +250,7 @@ impl Connection {
                         "too many updates",
                     ))];
                 }
+                let started = Instant::now();
                 match self.apply(&bytes, kind).await {
                     Ok(handled) => {
                         if let Some(update) = handled.update {
@@ -257,6 +258,7 @@ impl Connection {
                                 from: self.id,
                                 bytes: Bytes::from(update_frame(&update)),
                             });
+                            self.room.metrics().observe_broadcast(started.elapsed());
                         }
                         Vec::new()
                     }
@@ -304,9 +306,28 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
     };
     let room = connection.room.clone();
 
-    // Subscribe before announcing, so this connection hears the count that includes itself.
+    // Subscribe before joining, so this connection hears the count that includes itself. The
+    // join fails when the room was evicted a moment ago (its last socket had just left); the
+    // document is then simply loaded again.
     let mut outgoing = room.subscribe();
-    room.join();
+    let mut room = room;
+    let mut joined = state.hub.try_join(&room);
+    if !joined && let Ok(fresh) = state.hub.room(&state.db, doc_id).await {
+        room = fresh;
+        outgoing = room.subscribe();
+        joined = state.hub.try_join(&room);
+    }
+    if !joined {
+        close(
+            &mut socket,
+            CLOSE_INTERNAL,
+            "internal error",
+            config.send_timeout,
+        )
+        .await;
+        return;
+    }
+    connection.room = room.clone();
     room.announce_presence();
 
     let mut ping = interval(config.ping_interval);
@@ -363,8 +384,11 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
         }
     }
 
-    room.leave();
+    let remaining = room.leave();
     room.announce_presence();
+    if remaining == 0 {
+        state.hub.release(&state.db, &room).await;
+    }
 }
 
 #[cfg(test)]
