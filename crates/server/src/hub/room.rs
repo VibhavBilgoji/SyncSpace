@@ -29,6 +29,12 @@ pub enum Outgoing {
     Json(String),
     /// Close every connection with this code (the document was deleted).
     Close { code: u16, reason: &'static str },
+    /// Close the connections of one user (their role changed or they were removed).
+    CloseUser {
+        user: ObjectId,
+        code: u16,
+        reason: &'static str,
+    },
 }
 
 /// Why a frame was not applied.

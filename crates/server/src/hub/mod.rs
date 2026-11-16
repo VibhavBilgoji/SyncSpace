@@ -34,6 +34,7 @@ use crate::workspaces::handlers::iso;
 use self::frames::ServerFrame;
 
 /// Close codes of `docs/API.md` section 3.
+pub const CLOSE_NORMAL: u16 = 1000;
 pub const CLOSE_GOING_AWAY: u16 = 1001;
 pub const CLOSE_POLICY: u16 = 1008;
 pub const CLOSE_TOO_BIG: u16 = 1009;
@@ -278,6 +279,17 @@ impl Hub {
                     code: CLOSE_GOING_AWAY,
                     reason: "server shutting down",
                 });
+            }
+        }
+    }
+
+    /// Closes every open document socket of `user` in `workspace`. The browser reconnects with a
+    /// fresh ticket, which is checked against the membership as it is now (ADR-013: the role is
+    /// read at connect, so this is how a change reaches an open page).
+    pub fn close_user(&self, workspace: ObjectId, user: ObjectId, code: u16, reason: &'static str) {
+        for room in self.open_room_list() {
+            if room.workspace_id == workspace {
+                room.broadcast(Outgoing::CloseUser { user, code, reason });
             }
         }
     }
