@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { AvatarStack } from "@/components/ui/Avatar";
 import { Banner } from "@/components/ui/Banner";
 import type { DocumentSession } from "@/lib/doc/useDocumentSession";
 import { BlockRow } from "./BlockRow";
@@ -64,6 +65,12 @@ export function DocumentEditor({ title, icon, role, session }: Props) {
       )}
 
       <header className="mb-6">
+        {session.peers.length > 0 && (
+          <div className="mb-2 flex items-center justify-end gap-2" aria-label="People here now">
+            <AvatarStack names={session.peers} max={5} />
+            <span className="text-ui-sm text-text-muted">{session.peers.length} here</span>
+          </div>
+        )}
         <h1 className="text-display-xl">
           <span aria-hidden="true">{icon} </span>
           {title}
