@@ -1,5 +1,11 @@
 import { isValidSlug } from "@/lib/slug";
-import type { User, Workspace, WorkspaceSummary } from "@/types/generated";
+import type {
+  Document,
+  DocumentSummary,
+  User,
+  Workspace,
+  WorkspaceSummary,
+} from "@/types/generated";
 import { ApiError } from "./errors";
 import type { Api } from "./types";
 
@@ -10,6 +16,7 @@ import type { Api } from "./types";
 export function createMockApi(): Api {
   const users: Array<User & { password: string }> = [];
   const workspaces: WorkspaceSummary[] = [];
+  const documents: Array<Document & { updated: number }> = [];
   let sessionUserId: string | null = null;
   let nextId = 1;
   const id = () => (nextId++).toString(16).padStart(24, "0");
@@ -94,6 +101,69 @@ export function createMockApi(): Api {
           updated_at: now,
         };
         return created;
+      },
+    },
+    documents: {
+      async list(workspaceId) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        return documents
+          .filter((d) => d.workspace_id === workspaceId)
+          .sort((a, b) => b.updated - a.updated)
+          .map<DocumentSummary>((d) => ({
+            id: d.id,
+            title: d.title,
+            icon: d.icon,
+            revision: d.revision,
+            updated_at: d.updated_at,
+          }));
+      },
+      async create(workspaceId, { title, icon }) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const workspace = workspaces.find((w) => w.id === workspaceId);
+        if (!workspace) throw new ApiError(404, "NOT_FOUND", "not found");
+        if (workspace.role === "VIEWER") throw new ApiError(403, "FORBIDDEN", "forbidden");
+        const trimmed = title.trim();
+        const details: Record<string, string> = {};
+        if ([...trimmed].length < 1 || [...trimmed].length > 120)
+          details.title = "title must be 1 to 120 characters";
+        const chosen = icon?.trim() || "📄";
+        if ([...chosen].length > 16) details.icon = "icon must be at most 16 characters";
+        if (Object.keys(details).length) {
+          throw new ApiError(422, "VALIDATION", "validation failed", details);
+        }
+        const now = new Date().toISOString();
+        const doc = {
+          id: id(),
+          workspace_id: workspaceId,
+          title: trimmed,
+          icon: chosen,
+          revision: 0,
+          blocks: [],
+          created_by: sessionUserId,
+          created_at: now,
+          updated_at: now,
+          updated: Date.now(),
+        };
+        documents.push(doc);
+        workspace.document_count += 1;
+        return doc;
+      },
+      async get(docId) {
+        const doc = documents.find((d) => d.id === docId);
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        if (!doc) throw new ApiError(404, "NOT_FOUND", "not found");
+        return doc;
+      },
+      async update(docId, { title, icon }) {
+        const doc = await this.get(docId);
+        if (title !== undefined) doc.title = title.trim();
+        if (icon !== undefined) doc.icon = icon.trim();
+        return doc;
+      },
+      async remove(docId) {
+        const index = documents.findIndex((d) => d.id === docId);
+        if (index < 0) throw new ApiError(404, "NOT_FOUND", "not found");
+        documents.splice(index, 1);
       },
     },
   };

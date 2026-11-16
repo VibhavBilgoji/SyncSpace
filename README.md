@@ -18,7 +18,6 @@ Stack: Rust (Axum, Tokio, Yrs CRDT, compiled natively and to WebAssembly), Mongo
 ```bash
 cp .env.example .env                                      # fill in local values
 docker compose -f infrastructure/docker-compose.yml up -d mongo
-cargo run -p server --bin spike_relay                     # throwaway CRDT relay on 127.0.0.1:8080; the real API arrives in Phase 1
 pnpm --dir apps/web install
 pnpm --dir apps/web wasm                                  # build the browser CRDT package
 pnpm --dir apps/web dev                                   # http://localhost:3000

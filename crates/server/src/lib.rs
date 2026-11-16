@@ -14,7 +14,6 @@ pub mod health;
 pub mod hub;
 pub mod metrics;
 pub mod rbac;
-pub mod spike;
 pub mod telemetry;
 pub mod typegen;
 pub mod workspaces;

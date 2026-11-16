@@ -1,5 +1,9 @@
 import type {
+  CreateDocumentRequest,
   CreateWorkspaceRequest,
+  Document,
+  DocumentSummary,
+  UpdateDocumentRequest,
   LoginRequest,
   RegisterRequest,
   User,
@@ -20,7 +24,16 @@ export interface WorkspacesApi {
   create(input: CreateWorkspaceRequest): Promise<Workspace>;
 }
 
+export interface DocumentsApi {
+  list(workspaceId: string): Promise<DocumentSummary[]>;
+  create(workspaceId: string, input: CreateDocumentRequest): Promise<Document>;
+  get(id: string): Promise<Document>;
+  update(id: string, input: UpdateDocumentRequest): Promise<Document>;
+  remove(id: string): Promise<void>;
+}
+
 export interface Api {
   auth: AuthApi;
   workspaces: WorkspacesApi;
+  documents: DocumentsApi;
 }

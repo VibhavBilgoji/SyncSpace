@@ -118,8 +118,16 @@ jobs:
     needs: [rust, web]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The spike relay is started by Playwright (see e2e/playwright.config.ts).
-    # TODO(phase 1): mongo:8.0 service, and start the real API instead of the relay.
+    # Playwright starts the real API and the web server (see e2e/playwright.config.ts).
+    services:
+      mongo:
+        image: mongo:8.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping: 1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -142,6 +150,8 @@ jobs:
             e2e/pnpm-lock.yaml
       - run: pnpm --dir apps/web install --frozen-lockfile
       - run: pnpm --dir apps/web wasm
+      # Built here so that Playwright's 300 s start-up wait is not spent compiling.
+      - run: cargo build -p server
       - run: pnpm --dir e2e install --frozen-lockfile
       - run: pnpm --dir e2e typecheck
       - run: pnpm --dir e2e exec playwright install --with-deps chromium firefox
