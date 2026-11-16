@@ -21,10 +21,13 @@ use crate::api_types::{
     VersionSummary,
 };
 use crate::auth::handlers::UserResponse;
+use crate::auth::ticket::Scope;
 use crate::auth::validation::{LoginInput, RegisterInput};
+use crate::auth::ws_ticket::{TicketInput, TicketResponse};
 use crate::documents::validation::{
     CreateInput as CreateDocumentInput, PatchInput as PatchDocumentInput,
 };
+use crate::hub::frames::{ClientFrame, ServerFrame, SocketErrorCode};
 use crate::rbac::Role;
 use crate::workspaces::handlers::{MemberResponse, SummaryResponse, WorkspaceResponse};
 use crate::workspaces::validation::{AddMemberInput, CreateInput, PatchInput, RoleInput};
@@ -86,6 +89,12 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     AddMemberInput::export_all(config)?;
     RoleInput::export_all(config)?;
     CreateDocumentInput::export_all(config)?;
+    Scope::export_all(config)?;
+    TicketInput::export_all(config)?;
+    TicketResponse::export_all(config)?;
+    ServerFrame::export_all(config)?;
+    ClientFrame::export_all(config)?;
+    SocketErrorCode::export_all(config)?;
     PatchDocumentInput::export_all(config)?;
     // Types of endpoints that come later (`api_types`).
     BlockType::export_all(config)?;

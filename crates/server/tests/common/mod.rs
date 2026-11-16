@@ -10,6 +10,8 @@
 #![allow(dead_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod ws;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -25,6 +27,7 @@ use server::config::Config;
 use server::db;
 use server::db::users::{self, User};
 use server::db::workspaces::{self, MemberDoc, Workspace};
+use server::hub::{Hub, HubConfig};
 use server::rbac::Role;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -151,6 +154,8 @@ pub struct AppOptions {
     pub cookie_secure: bool,
     /// Password-hashing capacity and how long a request waits for it (the defaults when `None`).
     pub hash_limits: Option<(usize, Duration)>,
+    /// Hub limits and timeouts (the documented defaults when `None`).
+    pub hub: Option<HubConfig>,
 }
 
 impl Default for AppOptions {
@@ -160,6 +165,7 @@ impl Default for AppOptions {
             origins: ALLOWED_ORIGIN,
             cookie_secure: false,
             hash_limits: None,
+            hub: None,
         }
     }
 }
@@ -171,6 +177,8 @@ pub struct TestApp {
     pub db: Database,
     /// The password-hashing service the app uses, so a test can exhaust its capacity.
     pub auth: Arc<AuthService>,
+    /// The hub the app uses, so a test can look at its rooms.
+    pub hub: Arc<Hub>,
     _test_db: Option<TestDb>,
     shutdown: Option<oneshot::Sender<()>>,
     server: Option<JoinHandle<std::io::Result<()>>>,
@@ -225,7 +233,11 @@ impl TestApp {
         if let Some((permits, wait)) = options.hash_limits {
             state.auth = Arc::new(AuthService::with_limits(permits, wait).unwrap());
         }
+        if let Some(hub_config) = options.hub {
+            state.hub = Arc::new(Hub::new(hub_config));
+        }
         let auth = state.auth.clone();
+        let hub = state.hub.clone();
         let router = app::apply_layers(extra(app::routes()).with_state(state), &config);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -243,6 +255,7 @@ impl TestApp {
                 .unwrap(),
             db,
             auth,
+            hub,
             _test_db: test_db,
             shutdown: Some(shutdown),
             server: Some(server),

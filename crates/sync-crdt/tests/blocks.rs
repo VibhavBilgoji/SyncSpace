@@ -11,8 +11,8 @@ use proptest::test_runner::RngSeed;
 use serde_json::json;
 use sync_crdt::schema::{MAX_BLOCK_TEXT_UNITS, MAX_BLOCKS};
 use sync_crdt::{
-    Block, BlockType, CrdtError, Document, MAX_UPDATE_BYTES, check_state_vector, order_between,
-    update_frame,
+    Block, BlockType, CrdtError, Document, FrameKind, MAX_UPDATE_BYTES, check_state_vector,
+    frame_kind, is_empty_update, order_between, update_frame,
 };
 use yrs::block::ClientID;
 use yrs::sync::awareness::AwarenessUpdate;
@@ -1245,4 +1245,72 @@ fn encoding_the_state_from_a_state_vector_gives_only_what_is_missing() {
     b.apply_update(&diff).unwrap();
     assert_eq!(a.blocks(), b.blocks());
     assert!(a.encode_state_as_update_from(&[0xFF, 0xFF]).is_err());
+}
+
+#[test]
+fn frames_are_classified_without_being_applied() {
+    let a = doc(2);
+    let update = a
+        .create_block(&id(1), BlockType::Paragraph, 1.0, "x")
+        .unwrap();
+    assert_eq!(frame_kind(&a.sync_step1_frame()), Ok(FrameKind::SyncStep1));
+    assert_eq!(frame_kind(&update_frame(&update)), Ok(FrameKind::Update));
+    let step2 = Message::Sync(SyncMessage::SyncStep2(update)).encode_v1();
+    assert_eq!(frame_kind(&step2), Ok(FrameKind::SyncStep2));
+    let awareness = Message::Awareness(AwarenessUpdate {
+        clients: Default::default(),
+    })
+    .encode_v1();
+    assert_eq!(frame_kind(&awareness), Ok(FrameKind::Awareness));
+
+    // Only the two frames that carry changes are writes.
+    for (kind, write) in [
+        (FrameKind::SyncStep1, false),
+        (FrameKind::Awareness, false),
+        (FrameKind::SyncStep2, true),
+        (FrameKind::Update, true),
+    ] {
+        assert_eq!(kind.is_write(), write, "{kind:?}");
+    }
+
+    // Classifying never applies anything.
+    let b = doc(3);
+    let before = snapshot(&b);
+    let _ = frame_kind(&update_frame(&a.encode_state_as_update()));
+    assert_eq!(snapshot(&b), before);
+
+    for (frame, what) in [
+        (Vec::new(), "empty"),
+        (vec![0, 9], "unknown sync message"),
+        (vec![99, 1, 2], "unknown message type"),
+        (Message::AwarenessQuery.encode_v1(), "awareness query"),
+        (Message::Auth(None).encode_v1(), "auth"),
+        (vec![0u8; MAX_UPDATE_BYTES + 65], "oversized"),
+    ] {
+        assert!(frame_kind(&frame).is_err(), "{what} should be an error");
+    }
+}
+
+proptest! {
+    #![proptest_config(proptest_config(10_000, 300))]
+
+    #[test]
+    fn classifying_garbage_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..256)) {
+        let _ = frame_kind(&bytes);
+    }
+}
+
+#[test]
+fn an_update_with_no_change_is_recognised_as_empty() {
+    let a = doc(2);
+    let b = doc(3);
+    // What a client with nothing to add answers to a SyncStep1.
+    let nothing = b.encode_state_as_update_from(&a.state_vector()).unwrap();
+    assert!(is_empty_update(&nothing));
+    let update = a
+        .create_block(&id(1), BlockType::Paragraph, 1.0, "x")
+        .unwrap();
+    assert!(!is_empty_update(&update));
+    assert!(!is_empty_update(&[]));
+    assert!(!is_empty_update(&[0, 0, 0]));
 }

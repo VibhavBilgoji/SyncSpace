@@ -29,6 +29,49 @@ pub struct Handled {
     pub awareness: Option<Vec<u8>>,
 }
 
+/// What a binary frame is, without applying it. The hub reads this first so that it can refuse a
+/// write from a viewer before anything touches the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameKind {
+    /// "This is what I have": a request for the changes the sender lacks. Read-only.
+    SyncStep1,
+    /// The changes the receiver lacks. A write.
+    SyncStep2,
+    /// A change. A write.
+    Update,
+    /// Presence and cursors; never touches the document.
+    Awareness,
+}
+
+impl FrameKind {
+    /// Whether applying the frame changes the document.
+    pub fn is_write(self) -> bool {
+        matches!(self, Self::SyncStep2 | Self::Update)
+    }
+}
+
+/// Classifies a frame. Garbage, truncated frames and message types the document socket does not
+/// use (auth, awareness query, custom) are errors, never panics.
+pub fn frame_kind(frame: &[u8]) -> Result<FrameKind, CrdtError> {
+    if frame.len() > MAX_FRAME_BYTES {
+        return Err(CrdtError::TooLarge(frame.len()));
+    }
+    match decode_message(frame)? {
+        Message::Sync(SyncMessage::SyncStep1(_)) => Ok(FrameKind::SyncStep1),
+        Message::Sync(SyncMessage::SyncStep2(_)) => Ok(FrameKind::SyncStep2),
+        Message::Sync(SyncMessage::Update(_)) => Ok(FrameKind::Update),
+        Message::Awareness(_) => Ok(FrameKind::Awareness),
+        _ => Err(CrdtError::Decode),
+    }
+}
+
+/// Whether an update carries no change at all (what a client answers with when it has nothing the
+/// server lacks). The hub does not broadcast or count these.
+pub fn is_empty_update(update: &[u8]) -> bool {
+    use yrs::Update;
+    update == Update::default().encode_v1().as_slice()
+}
+
 /// Wraps an update in an Update frame.
 pub fn update_frame(update: &[u8]) -> Vec<u8> {
     Message::Sync(SyncMessage::Update(update.to_vec())).encode_v1()

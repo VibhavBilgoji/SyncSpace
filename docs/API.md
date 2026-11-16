@@ -101,9 +101,11 @@ There is no server export endpoint. The UI exports the loaded entries as CSV or 
 ## 3. WebSocket protocol
 
 ### Connecting
-1. `POST /api/v1/auth/ws-ticket {scope, id}` through the web domain.
-2. Open `wss://<API_HOST>/ws/v1/docs/{doc_id}?ticket=...` or `wss://<API_HOST>/ws/v1/workspaces/{wid}?ticket=...`.
-3. The server checks the ticket signature, expiry and single use, the `Origin` header against `ALLOWED_ORIGINS`, and membership. It stores the role in the session.
+1. `POST /api/v1/auth/ws-ticket {scope, id}` through the web domain. The caller must be a member of the workspace the id belongs to (anyone else gets the same 404 as for an unknown id). The ticket is an HS256 token signed with `TICKET_SECRET` (never the session key) that names the user, the scope and the id, and expires after 30 seconds.
+2. Open `wss://<API_HOST>/ws/v1/docs/{doc_id}?ticket=...` or `wss://<API_HOST>/ws/v1/workspaces/{wid}?ticket=...` (the workspace socket arrives with the board, task 5.x).
+3. The `Origin` header must be present and one of `ALLOWED_ORIGINS`: otherwise the handshake is refused with HTTP 403, before anything else. After the upgrade the server checks the ticket (genuine, not expired, for this scope and id, **never used before**: it is burnt at once), that the document exists and that the user is still a member. It stores the role for the life of the socket. Failures close the socket: 4001 for any bad ticket, 4004 for a document that does not exist, 4003 when the user is no longer a member.
+
+The role is read when the socket connects and checked on every frame. A role that changes while a socket is open is **not** pushed to it (live demotion is future work, ADR-013): the new role applies when the socket reconnects, which a browser does after any interruption and which REST requests do not wait for.
 
 ### Document socket
 Binary frames follow the y-sync protocol (`yrs::sync`), first varint is the message type: `0` sync (SyncStep1, SyncStep2, Update) and `1` awareness.
@@ -114,7 +116,7 @@ Binary frames follow the y-sync protocol (`yrs::sync`), first varint is the mess
 | SyncStep2, Update | allow | reject: JSON `ERROR {code: "READ_ONLY"}`, update dropped |
 | Awareness | allow | allow |
 
-Text frames are JSON `{"type": ..., ...}`.
+Text frames are JSON `{"type": ..., ...}`. The server answers a viewer's `SyncStep2` or `Update` with `ERROR READ_ONLY` and drops the frame (the document is not changed and nobody else receives it); frames over the rate limit get `ERROR RATE_LIMITED` and are dropped, and the socket stays open; a frame or document over its size limit closes with 1009. A text frame the server does not understand, and a binary frame it cannot decode or that breaks the document schema, close with 1008.
 
 An update that builds on changes the server does not have (it arrived before the update it depends on) is not applied; the server answers with its own SyncStep1 and keeps the socket open, and the client replies with the diff. Any other frame or update the server cannot handle closes the socket with 1008.
 
@@ -176,6 +178,13 @@ type ErrorCode = "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "C
                | "RATE_LIMITED" | "PAYLOAD_TOO_LARGE" | "METHOD_NOT_ALLOWED" | "INTERNAL";
 interface ApiErrorBody { code: ErrorCode; message: string; details?: Record<string, string> }
 interface ApiErrorResponse { error: ApiErrorBody }
+type Scope = "doc" | "workspace";
+interface WsTicketResponse { ticket: string; expires_at: string }
+type SocketErrorCode = "READ_ONLY" | "RATE_LIMITED" | "TOO_LARGE";
+type ServerFrame = { type: "PONG"; t: number }
+                 | { type: "ERROR"; code: SocketErrorCode; message: string }
+                 | { type: "PRESENCE_COUNT"; active_sockets: number };
+type ClientFrame = { type: "PING"; t: number };
 interface Member { user_id: string; name: string; email: string; role: Role; joined_at: string; is_owner: boolean }
 interface Block { block_id: string; type: BlockType; content: string; properties: Record<string, unknown>; order: number }
 interface Task { id: string; board_id: string; title: string; description: string; status: Status; priority: Priority;

@@ -38,7 +38,7 @@ Each user has one role per workspace. The workspace owner is always a member wit
 | FR8 | Only ADMINs can delete documents. |
 | FR9 | ADMINs and EDITORs can create boards and create, edit and delete tasks (title, description, status, priority, assignees, tags). |
 | FR10 | ADMINs and EDITORs can move tasks between columns (Backlog, To do, In progress, Review, Done) and reorder them. Every member sees moves live. |
-| FR11 | VIEWERs have read-only access. The server rejects their write attempts. A role change or removal takes effect on open sessions immediately. |
+| FR11 | VIEWERs have read-only access. The server rejects their write attempts. A role change or removal takes effect on open sessions immediately. **Partly future work (ADR-013): for now it takes effect when the session's socket reconnects.** |
 | FR12 | The system writes one audit row for each of these actions: DOC_CREATE, DOC_DELETE, ROLE_CHANGE, MEMBER_ADD, MEMBER_REMOVE, TASK_CREATE, TASK_MOVE, TASK_DELETE, VERSION_SAVE, VERSION_RESTORE. |
 | FR13 | Only ADMINs can read the audit trail, filter it by action, actor and entity type, inspect an entry's JSON, and export the loaded entries as CSV or JSON. |
 | FR14 | ADMINs and EDITORs can save a named version (manual save point with a label). |
