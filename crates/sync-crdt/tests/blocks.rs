@@ -1314,3 +1314,92 @@ fn an_update_with_no_change_is_recognised_as_empty() {
     assert!(!is_empty_update(&[]));
     assert!(!is_empty_update(&[0, 0, 0]));
 }
+
+#[test]
+fn restoring_turns_the_content_into_the_target_and_converges_on_every_replica() {
+    // The target: three blocks, one with properties.
+    let old = doc(2);
+    old.create_block(&id(1), BlockType::Heading1, 1.0, "Plan")
+        .unwrap();
+    old.create_block(&id(2), BlockType::Checklist, 2.0, "Ship it")
+        .unwrap();
+    old.set_props(&id(2), r#"{"checked":true}"#).unwrap();
+    old.create_block(&id(3), BlockType::Paragraph, 3.0, "gone later")
+        .unwrap();
+    let archived = doc(3);
+    archived
+        .apply_update(&old.encode_state_as_update())
+        .unwrap();
+
+    // The live document drifted: block 1 edited and retyped, block 2 deleted, block 3 moved,
+    // block 4 added.
+    let live = doc(4);
+    live.apply_update(&old.encode_state_as_update()).unwrap();
+    let peer = doc(5);
+    peer.apply_update(&old.encode_state_as_update()).unwrap();
+    let edits = vec![
+        live.insert_text(&id(1), 4, " and more").unwrap(),
+        live.set_type(&id(1), BlockType::Paragraph).unwrap(),
+        live.delete_block(&id(2)).unwrap(),
+        live.move_block(&id(3), 0.5).unwrap(),
+        live.create_block(&id(4), BlockType::Code, 9.0, "fn main() {}")
+            .unwrap(),
+    ];
+    for update in edits {
+        peer.apply_update(&update).unwrap();
+    }
+    assert_eq!(live.blocks(), peer.blocks());
+
+    let update = live.restore_update(&archived, 77).unwrap();
+    live.apply_update(&update).unwrap();
+    peer.apply_update(&update).unwrap();
+
+    assert_eq!(
+        live.blocks(),
+        archived.blocks(),
+        "the content is the archived content"
+    );
+    assert_eq!(
+        peer.blocks(),
+        archived.blocks(),
+        "a replica that only got the update agrees"
+    );
+    assert_eq!(ids(&live), vec![id(1), id(2), id(3)]);
+    assert_eq!(
+        live.blocks()[1].properties.get("checked"),
+        Some(&json!(true))
+    );
+}
+
+#[test]
+fn restoring_an_identical_document_changes_nothing() {
+    let a = doc(2);
+    a.create_block(&id(1), BlockType::Paragraph, 1.0, "same")
+        .unwrap();
+    let b = doc(3);
+    b.apply_update(&a.encode_state_as_update()).unwrap();
+    let update = a.restore_update(&b, 77).unwrap();
+    assert!(is_empty_update(&update));
+    let before = a.blocks();
+    a.apply_update(&update).unwrap();
+    assert_eq!(a.blocks(), before);
+}
+
+#[test]
+fn restoring_leaves_the_document_alone_until_the_update_is_applied() {
+    let live = doc(2);
+    live.create_block(&id(1), BlockType::Paragraph, 1.0, "live")
+        .unwrap();
+    let target = doc(3);
+    target
+        .create_block(&id(2), BlockType::Paragraph, 1.0, "archived")
+        .unwrap();
+    let state = live.encode_state_as_update();
+    let _ = live.restore_update(&target, 77).unwrap();
+    assert_eq!(live.encode_state_as_update(), state);
+    assert_eq!(live.block_content(&id(1)).unwrap(), "live");
+    assert!(
+        live.restore_update(&target, 1 << 53).is_err(),
+        "a bad scratch client id is an error"
+    );
+}

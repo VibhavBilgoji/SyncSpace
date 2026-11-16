@@ -24,7 +24,6 @@ use server::rbac::{Access, Role};
 /// Documented routes of features that later tasks build. When a task adds them to the table,
 /// it also adds a fixture, and the entry here stops mattering.
 const NOT_BUILT_YET: &[&str] = &[
-    "/documents/{id}/versions/{n}/restore",
     "/workspaces/{wid}/boards",
     "/boards/",
     "/tasks/",
@@ -145,6 +144,10 @@ fn fixture(key: &str) -> Option<Fixture> {
             body: |_| Some(json!({"label": "Matrix version"})),
         },
         "GET /documents/{id}/versions/{n}" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "POST /documents/{id}/versions/{n}/restore" => Fixture {
             ok: 200,
             body: none,
         },
@@ -356,6 +359,7 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "GET /documents/{id}/versions",
         "POST /documents/{id}/versions",
         "GET /documents/{id}/versions/{n}",
+        "POST /documents/{id}/versions/{n}/restore",
     ];
     let with_fixture: BTreeSet<String> = probes
         .iter()

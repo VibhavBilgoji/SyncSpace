@@ -187,6 +187,12 @@ pub fn api_route_table() -> Vec<RouteSpec> {
             || post(crate::versions::handlers::save_version),
         ),
         RouteSpec::new(
+            "POST",
+            "/documents/{id}/versions/{n}/restore",
+            Access::Member(Editor),
+            || post(crate::versions::handlers::restore_version),
+        ),
+        RouteSpec::new(
             "GET",
             "/documents/{id}/versions/{n}",
             Access::Member(Viewer),

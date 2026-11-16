@@ -247,6 +247,67 @@ impl Document {
         txn.encode_update_v1()
     }
 
+    /// The update that turns this document's content into `target`'s (restore, task 4.4): blocks
+    /// missing from `target` are deleted, missing ones are created, and the others get `target`'s
+    /// type, text, properties and order. Nothing is changed here: the work is done on a scratch
+    /// copy (with `scratch_client_id`, which must be unique among replicas) and only the
+    /// difference comes back, so a failure leaves the document untouched and the caller applies
+    /// the result through the normal, checked path.
+    pub fn restore_update(
+        &self,
+        target: &Document,
+        scratch_client_id: u64,
+    ) -> Result<Vec<u8>, CrdtError> {
+        let scratch = Document::new(scratch_client_id)?;
+        scratch.apply_update(&self.encode_state_as_update())?;
+        let before = scratch.state_vector();
+        let wanted = target.blocks();
+        let have = scratch.blocks();
+        for block in &have {
+            if !wanted.iter().any(|w| w.block_id == block.block_id) {
+                scratch.delete_block(&block.block_id)?;
+            }
+        }
+        for w in &wanted {
+            let props = serde_json::to_string(&w.properties).map_err(|_| CrdtError::Decode)?;
+            match have.iter().find(|h| h.block_id == w.block_id) {
+                None => {
+                    scratch.create_block(&w.block_id, w.block_type, w.order, &w.content)?;
+                    if !w.properties.is_empty() {
+                        scratch.set_props(&w.block_id, &props)?;
+                    }
+                }
+                Some(h) => {
+                    if h.block_type != w.block_type {
+                        scratch.set_type(&w.block_id, w.block_type)?;
+                    }
+                    if h.content != w.content {
+                        let length = u32::try_from(h.content.encode_utf16().count())
+                            .map_err(|_| CrdtError::InvalidOrder)?;
+                        if length > 0 {
+                            scratch.delete_text(&w.block_id, 0, length)?;
+                        }
+                        if !w.content.is_empty() {
+                            scratch.insert_text(&w.block_id, 0, &w.content)?;
+                        }
+                    }
+                    // `set_type` may have dropped properties, so compare against the result.
+                    let now = scratch
+                        .blocks()
+                        .into_iter()
+                        .find(|b| b.block_id == w.block_id);
+                    if now.map(|b| b.properties) != Some(w.properties.clone()) {
+                        scratch.set_props(&w.block_id, &props)?;
+                    }
+                    if h.order.to_bits() != w.order.to_bits() {
+                        scratch.move_block(&w.block_id, w.order)?;
+                    }
+                }
+            }
+        }
+        scratch.encode_state_as_update_from(&before)
+    }
+
     /// The text of block `id`.
     pub fn block_content(&self, id: &str) -> Result<String, CrdtError> {
         let text = self.block_text(&self.block_map(id)?)?;

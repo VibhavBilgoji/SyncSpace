@@ -274,3 +274,155 @@ async fn versions_of_another_workspaces_document_are_a_404() {
         assert_eq!(status, 404, "{tail}");
     }
 }
+
+// ------------------------------------------------------------------------------------ restore
+
+async fn blocks_text(app: &TestApp, doc: ObjectId) -> Vec<String> {
+    let record = server::db::documents::find(&app.db, doc)
+        .await
+        .unwrap()
+        .unwrap();
+    record.blocks.iter().map(|b| b.content.clone()).collect()
+}
+
+#[tokio::test]
+async fn restoring_replaces_the_content_for_everyone_and_keeps_a_copy_of_what_was_there() {
+    let app = TestApp::real().await;
+    let fx = Fixture::new(&app).await;
+    fx.save(&app, fx.editor(), "Empty start").await; // version 1: one empty paragraph
+
+    let mut client = WsClient::open(&app, fx.editor(), &fx.doc_id, 21).await;
+    client.handshake().await;
+    let first = client.doc.blocks()[0].block_id.clone();
+    let update = client.doc.insert_text(&first, 0, "written later").unwrap();
+    client.send_update(&update).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    let (status, body) = app
+        .call("POST", &fx.path("/1/restore"), Some(fx.editor()), None)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let restore = &body["restore_version"];
+    assert_eq!(restore["version_number"], 2);
+    assert_eq!(restore["change_type"], "RESTORE");
+    assert_eq!(restore["restored_from"], 1);
+    assert_eq!(restore["restored_from_kept"], true);
+    assert_eq!(restore["label"], "Restored from Version 1");
+    assert_eq!(restore["created_by"]["id"], fx.editor().id.to_hex());
+    assert!(
+        body["revision"].as_i64().unwrap() >= 1,
+        "written at once: {body}"
+    );
+
+    // The open socket got the new content and was told what happened.
+    let mut restored = None;
+    let mut got_content = false;
+    while let Some(frame) = client
+        .recv_within(std::time::Duration::from_millis(500))
+        .await
+    {
+        match frame {
+            common::ws::Frame::Binary(bytes) => {
+                client.apply(&bytes);
+                got_content = true;
+            }
+            common::ws::Frame::Json(v) if v["type"] == "DOC_RESTORED" => restored = Some(v),
+            _ => {}
+        }
+    }
+    let frame = restored.expect("DOC_RESTORED reached the open socket");
+    assert_eq!(frame["restored_from"], 1);
+    assert_eq!(frame["by"]["id"], fx.editor().id.to_hex());
+    assert_eq!(frame["restore_version"]["version_number"], 2);
+    assert!(got_content, "the restored content was broadcast");
+    assert_eq!(client.doc.block_content(&first).unwrap(), "");
+    assert_eq!(blocks_text(&app, fx.doc).await, vec![String::new()]);
+
+    // The RESTORE row holds what was there before, so the restore can be undone.
+    let (_, undo) = app
+        .call("GET", &fx.path("/2"), Some(fx.viewer()), None)
+        .await;
+    assert_eq!(undo["blocks"][0]["content"], "written later");
+    let (status, _) = app
+        .call("POST", &fx.path("/2/restore"), Some(fx.editor()), None)
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        blocks_text(&app, fx.doc).await,
+        vec!["written later".to_string()]
+    );
+
+    let rows = app.audit_rows(fx.workspace.id).await;
+    let actions: Vec<&str> = rows.iter().map(|r| r.get_str("action").unwrap()).collect();
+    assert_eq!(
+        actions,
+        vec!["VERSION_SAVE", "VERSION_RESTORE", "VERSION_RESTORE"]
+    );
+    let metadata = rows[1].get_document("metadata").unwrap();
+    assert_eq!(metadata.get_i32("restored_from").unwrap(), 1);
+    assert_eq!(metadata.get_i32("version_number").unwrap(), 2);
+    assert_eq!(rows[1].get_str("entity_id").unwrap(), fx.doc_id);
+}
+
+#[tokio::test]
+async fn restoring_a_closed_document_writes_it_and_lets_the_room_go() {
+    let app = TestApp::real().await;
+    let fx = Fixture::new(&app).await;
+    // Version 1 has text; the stored document is then emptied behind it.
+    let mut client = WsClient::open(&app, fx.editor(), &fx.doc_id, 22).await;
+    client.handshake().await;
+    let first = client.doc.blocks()[0].block_id.clone();
+    let update = client.doc.insert_text(&first, 0, "archived text").unwrap();
+    client.send_update(&update).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    fx.save(&app, fx.editor(), "With text").await;
+    let update = client.doc.delete_text(&first, 0, 13).unwrap();
+    client.send_update(&update).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    client.close().await;
+    for _ in 0..50 {
+        if app.hub.open_rooms() == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(blocks_text(&app, fx.doc).await, vec![String::new()]);
+
+    let (status, body) = app
+        .call("POST", &fx.path("/1/restore"), Some(fx.editor()), None)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        blocks_text(&app, fx.doc).await,
+        vec!["archived text".to_string()]
+    );
+    assert_eq!(
+        app.hub.open_rooms(),
+        0,
+        "nobody had it open, so the room is gone again"
+    );
+}
+
+#[tokio::test]
+async fn a_viewer_cannot_restore_and_an_unknown_version_changes_nothing() {
+    let app = TestApp::real().await;
+    let fx = Fixture::new(&app).await;
+    fx.save(&app, fx.editor(), "Only one").await;
+    let before = app.audit_rows(fx.workspace.id).await.len();
+    let (status, _) = app
+        .call("POST", &fx.path("/1/restore"), Some(fx.viewer()), None)
+        .await;
+    assert_eq!(status, 403);
+    let (status, _) = app
+        .call("POST", &fx.path("/9/restore"), Some(fx.editor()), None)
+        .await;
+    assert_eq!(status, 404);
+    let outsider = app.account("Outsider").await;
+    let (status, _) = app
+        .call("POST", &fx.path("/1/restore"), Some(&outsider), None)
+        .await;
+    assert_eq!(status, 404);
+    assert_eq!(app.audit_rows(fx.workspace.id).await.len(), before);
+    let rows = versions::list(&app.db, fx.doc, 10, None).await.unwrap();
+    assert_eq!(rows.len(), 1, "no RESTORE row was written");
+}

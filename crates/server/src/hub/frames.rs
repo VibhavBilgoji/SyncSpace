@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::api_types::VersionSummary;
+use crate::api_types::{UserRef, VersionSummary};
 
 /// A frame the server sends as text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -23,6 +23,12 @@ pub enum ServerFrame {
     SnapshotSaved { revision: i64, saved_at: String },
     /// A manual version was saved: refreshes an open history panel.
     VersionCreated(VersionSummary),
+    /// A version was restored: the document content changed for everyone (toast "Restored Version N").
+    DocRestored {
+        restored_from: i32,
+        by: UserRef,
+        restore_version: VersionSummary,
+    },
 }
 
 /// A frame the client sends as text.

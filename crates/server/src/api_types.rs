@@ -121,6 +121,14 @@ pub struct VersionSummary {
     pub created_at: String,
 }
 
+/// The answer to a restore (`POST /documents/:id/versions/:n/restore`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct RestoreResponse {
+    pub restore_version: VersionSummary,
+    /// The document revision after the restore was written to MongoDB.
+    pub revision: i64,
+}
+
 /// One version with its blocks (`GET /documents/:id/versions/:n`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct VersionDetail {
