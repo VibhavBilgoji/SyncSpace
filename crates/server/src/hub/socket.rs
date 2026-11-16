@@ -171,6 +171,9 @@ fn binary(bytes: Vec<u8>) -> Action {
 }
 
 /// Per-connection state.
+/// The longest text frame accepted (`PING` is under 40 bytes).
+const MAX_TEXT_BYTES: usize = 1024;
+
 struct Connection {
     id: u64,
     user: ObjectId,
@@ -248,6 +251,11 @@ impl Connection {
             FrameKind::SyncStep2 | FrameKind::Update => {
                 // The role is checked before the frame touches the document.
                 if self.role == Role::Viewer {
+                    // Refused frames cost a token too, so a viewer cannot make the server answer
+                    // at line speed; past the limit the connection is closed.
+                    if !self.updates.try_take() {
+                        return vec![Action::Close(CLOSE_POLICY, "too many refused frames")];
+                    }
                     return vec![text(&ServerFrame::error(
                         SocketErrorCode::ReadOnly,
                         "viewers cannot edit this document",
@@ -287,6 +295,10 @@ impl Connection {
     }
 
     fn on_text(&mut self, body: &str) -> Vec<Action> {
+        // The only text frame is a PING of a few bytes: anything long is refused before parsing.
+        if body.len() > MAX_TEXT_BYTES {
+            return vec![Action::Close(CLOSE_TOO_BIG, "frame too large")];
+        }
         match serde_json::from_str::<ClientFrame>(body) {
             Ok(ClientFrame::Ping { t }) => vec![text(&ServerFrame::Pong { t })],
             Err(_) => vec![Action::Close(CLOSE_POLICY, "invalid frame")],

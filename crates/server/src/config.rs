@@ -53,6 +53,8 @@ pub struct Config {
     pub snapshot_interval_secs: u64,
     pub version_interval_secs: u64,
     pub auto_version_retention: u32,
+    /// Bearer token for `GET /metrics`. Unset: the endpoint answers 404.
+    pub metrics_token: Option<Secret<String>>,
 }
 
 /// Everything that is wrong with the environment, one message per problem. The messages name
@@ -77,7 +79,7 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// The variables this module reads.
-const VARIABLES: [&str; 10] = [
+const VARIABLES: [&str; 11] = [
     "PORT",
     "MONGODB_URI",
     "MONGODB_DB",
@@ -88,6 +90,7 @@ const VARIABLES: [&str; 10] = [
     "SNAPSHOT_INTERVAL_SECS",
     "VERSION_INTERVAL_SECS",
     "AUTO_VERSION_RETENTION",
+    "METRICS_TOKEN",
 ];
 
 impl Config {
@@ -153,6 +156,13 @@ impl Config {
         );
         let cookie_secure = boolean(&mut problems, "COOKIE_SECURE", get("COOKIE_SECURE"), true);
 
+        let metrics_token = get("METRICS_TOKEN").map(|t| t.trim().to_string());
+        if let Some(token) = &metrics_token
+            && token.chars().count() < 16
+        {
+            problems.push("METRICS_TOKEN must be at least 16 characters when set".to_string());
+        }
+
         match (mongodb_uri, jwt_secret, ticket_secret) {
             (Some(uri), Some(jwt), Some(ticket)) if problems.is_empty() => Ok(Self {
                 port,
@@ -165,6 +175,7 @@ impl Config {
                 snapshot_interval_secs,
                 version_interval_secs,
                 auto_version_retention,
+                metrics_token: metrics_token.map(Secret::new),
             }),
             _ => Err(ConfigError { problems }),
         }
@@ -447,5 +458,17 @@ mod tests {
         vars.insert("JWT_SECRET".into(), "super-secret-but-not-base64!!".into());
         let shown = Config::from_map(&vars).unwrap_err().to_string();
         assert!(!shown.contains("super-secret"), "{shown}");
+    }
+
+    #[test]
+    fn the_metrics_token_is_optional_but_not_short() {
+        let none = Config::from_map(&valid()).unwrap();
+        assert!(none.metrics_token.is_none());
+        let mut vars = valid();
+        vars.insert("METRICS_TOKEN".into(), " a-long-enough-token ".into());
+        let set = Config::from_map(&vars).unwrap();
+        assert_eq!(set.metrics_token.unwrap().expose(), "a-long-enough-token");
+        vars.insert("METRICS_TOKEN".into(), "short".into());
+        assert!(problems(&vars).iter().any(|p| p.contains("METRICS_TOKEN")));
     }
 }
