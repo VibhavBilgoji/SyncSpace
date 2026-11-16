@@ -820,3 +820,73 @@ async fn an_idle_connection_is_pinged_and_then_closed() {
         Some(CLOSE_POLICY) | None
     ));
 }
+
+// ------------------------------------------------------------------------- live role changes
+
+#[tokio::test]
+async fn demoting_a_member_closes_their_socket_and_the_reconnect_is_read_only() {
+    let app = TestApp::real().await;
+    let room = Room::new(&app).await;
+    let mut editor = join(&app, &room, room.editor(), 1201).await;
+    let mut other = join(&app, &room, room.admin(), 1202).await;
+
+    let (status, body) = app
+        .call(
+            "PATCH",
+            &format!(
+                "/api/v1/workspaces/{}/members/{}",
+                room.workspace.hex(),
+                room.editor().id.to_hex()
+            ),
+            Some(room.admin()),
+            Some(json!({"role": "VIEWER"})),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(editor.recv_close().await, Some(1000));
+    assert!(
+        other
+            .recv_within(Duration::from_millis(300))
+            .await
+            .is_none_or(|f| !matches!(f, Frame::Closed(_))),
+        "other users keep their sockets"
+    );
+
+    // The reconnect has the new role: writes are refused.
+    let mut again = WsClient::open(&app, room.editor(), &room.doc_id, 1203).await;
+    again.handshake_read_only().await;
+    let first = again.doc.blocks()[0].block_id.clone();
+    let update = again.doc.insert_text(&first, 0, "x").unwrap();
+    again.send_update(&update).await;
+    assert_eq!(again.recv_json("ERROR").await["code"], "READ_ONLY");
+}
+
+#[tokio::test]
+async fn removing_a_member_closes_their_socket_with_4003_and_they_cannot_return() {
+    let app = TestApp::real().await;
+    let room = Room::new(&app).await;
+    let mut editor = join(&app, &room, room.editor(), 1301).await;
+    let (status, _) = app
+        .call(
+            "DELETE",
+            &format!(
+                "/api/v1/workspaces/{}/members/{}",
+                room.workspace.hex(),
+                room.editor().id.to_hex()
+            ),
+            Some(room.admin()),
+            None,
+        )
+        .await;
+    assert_eq!(status, 204);
+    assert_eq!(editor.recv_close().await, Some(CLOSE_FORBIDDEN));
+    let (status, _) = app
+        .call(
+            "POST",
+            "/api/v1/auth/ws-ticket",
+            Some(room.editor()),
+            Some(json!({"scope": "doc", "id": room.doc_id})),
+        )
+        .await;
+    assert_eq!(status, 404);
+}

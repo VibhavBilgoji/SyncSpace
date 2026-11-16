@@ -24,6 +24,7 @@ use crate::db::users::{self, User};
 use crate::db::workspaces::{self, MemberDoc, Workspace, WriteError};
 use crate::error::ApiError;
 use crate::extract::ApiJson;
+use crate::hub::{CLOSE_FORBIDDEN, CLOSE_NORMAL};
 use crate::rbac::{Role, parse_id, require_role};
 
 pub(crate) fn iso(date: DateTime) -> String {
@@ -286,7 +287,10 @@ pub async fn change_member_role(
             )
             .await?;
         }
-        // Task 2.3 (the WebSocket hub) also sends ROLE_CHANGED to this user's open sessions here.
+        // A plain close: the page reconnects and gets the new role (no ROLE_CHANGED frame).
+        state
+            .hub
+            .close_user(id, target, CLOSE_NORMAL, "role changed");
     }
 
     let account = users::find_by_id(&state.db, target)
@@ -329,6 +333,8 @@ pub async fn remove_member(
         },
     )
     .await?;
-    // Task 2.3 (the WebSocket hub) also closes this user's open sessions with 4003 here.
+    state
+        .hub
+        .close_user(id, target, CLOSE_FORBIDDEN, "removed from the workspace");
     Ok(StatusCode::NO_CONTENT)
 }

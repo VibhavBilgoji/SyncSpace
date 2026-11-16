@@ -50,12 +50,12 @@ Role column: minimum role needed in the workspace the resource belongs to.
 | `PATCH /workspaces/:wid` | ADMIN | `{name?, slug?}` (at least one) | `Workspace`; 409 for a taken slug |
 | `GET /workspaces/:wid/members` | VIEWER | | `[Member]` with name, email, role, joined_at, is_owner; the owner first, then in join order |
 | `POST /workspaces/:wid/members` | ADMIN | `{email, role}` | 201 `Member`; 404 if no account has that email; 409 if already a member; audit MEMBER_ADD |
-| `PATCH /workspaces/:wid/members/:uid` | ADMIN | `{role}` | `Member`; 409 for the owner; 404 if not a member; audit ROLE_CHANGE (none when the role is already that one); an open socket keeps its old role until it reconnects (ADR-013) |
-| `DELETE /workspaces/:wid/members/:uid` | ADMIN | | 204; 409 for the owner; 404 if not a member; audit MEMBER_REMOVE; the user leaves the assignees of the workspace's tasks; an open socket of the user is **not** closed (ADR-013): the user gets 4003 when it reconnects |
+| `PATCH /workspaces/:wid/members/:uid` | ADMIN | `{role}` | `Member`; 409 for the owner; 404 if not a member; audit ROLE_CHANGE (none when the role is already that one); the user's open document sockets are closed with 1000 "role changed" and the reconnect applies the new role (ADR-014) |
+| `DELETE /workspaces/:wid/members/:uid` | ADMIN | | 204; 409 for the owner; 404 if not a member; audit MEMBER_REMOVE; the user leaves the assignees of the workspace's tasks; the user's open document sockets are closed with 4003 (ADR-014) |
 
 **Workspace rules.** `name`: trimmed, 1 to 60 characters, no control characters. `slug`: exactly `^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$` (3 to 40 characters); it is never changed for the caller, so `Team` is rejected, not turned into `team`. A path id that is not 24 hex characters is 400. A caller who is not a member of `:wid` gets the same 404 as for an id that does not exist; a member below the route's role gets 403, and the role is checked before the body, so a refused caller learns nothing about their body. The owner is an ADMIN member who cannot be demoted or removed, by anyone. Any other ADMIN may demote or remove themselves. A member email is matched like a login email (trimmed, case-insensitive). Creating or editing a workspace is not audited; adding, removing and changing members is, one row each, only when something changed.
 
-**Not live (ADR-013).** `ROLE_CHANGED` and closing a removed user's open sockets are future work. REST re-reads membership on every request, so a removed or demoted user is refused there at once; the socket applies the new role when it reconnects.
+**Live roles (ADR-014).** There is no `ROLE_CHANGED` frame: a role change or removal closes the user's open document sockets (1000 or 4003) and the reconnect applies the new role. REST re-reads membership on every request.
 
 ### Documents
 | Method and path | Role | Body | Response |
@@ -105,7 +105,7 @@ There is no server export endpoint. The UI exports the loaded entries as CSV or 
 2. Open `wss://<API_HOST>/ws/v1/docs/{doc_id}?ticket=...` or `wss://<API_HOST>/ws/v1/workspaces/{wid}?ticket=...` (the workspace socket arrives with the board, task 5.x).
 3. The `Origin` header must be present and one of `ALLOWED_ORIGINS`: otherwise the handshake is refused with HTTP 403, before anything else. After the upgrade the server checks the ticket (genuine, not expired, for this scope and id, **never used before**: it is burnt at once), that the document exists and that the user is still a member. It stores the role for the life of the socket. Failures close the socket: 4001 for any bad ticket, 4004 for a document that does not exist, 4003 when the user is no longer a member.
 
-The role is read when the socket connects and checked on every frame. A role that changes while a socket is open is **not** pushed to it (live demotion is future work, ADR-013): the new role applies when the socket reconnects, which a browser does after any interruption and which REST requests do not wait for.
+The role is read when the socket connects and checked on every frame. When the role changes or the member is removed, the server closes that user's open sockets (ADR-014) and the new role applies at the reconnect.
 
 ### Document socket
 Binary frames follow the y-sync protocol (`yrs::sync`), first varint is the message type: `0` sync (SyncStep1, SyncStep2, Update) and `1` awareness.

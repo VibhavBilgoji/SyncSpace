@@ -85,6 +85,7 @@ pub async fn doc_socket(
 struct Identity {
     room: Arc<DocRoom>,
     role: Role,
+    user: ObjectId,
 }
 
 type Refusal = (u16, &'static str);
@@ -130,6 +131,7 @@ async fn authorise(
     Ok(Identity {
         room,
         role: granted.role,
+        user: ticket.user,
     })
 }
 
@@ -171,6 +173,7 @@ fn binary(bytes: Vec<u8>) -> Action {
 /// Per-connection state.
 struct Connection {
     id: u64,
+    user: ObjectId,
     role: Role,
     room: Arc<DocRoom>,
     updates: TokenBucket,
@@ -303,6 +306,7 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
 
     let mut connection = Connection {
         id: state.hub.next_connection_id(),
+        user: identity.user,
         role: identity.role,
         room: identity.room,
         updates: TokenBucket::new(config.updates),
@@ -368,6 +372,9 @@ async fn run(mut socket: WebSocket, state: AppState, doc_id: ObjectId, token: Op
                 }
                 Ok(Outgoing::Json(body)) => vec![Action::Send(Message::Text(body.into()))],
                 Ok(Outgoing::Close { code, reason }) => vec![Action::Close(code, reason)],
+                Ok(Outgoing::CloseUser { user, code, reason }) => {
+                    if user == connection.user { vec![Action::Close(code, reason)] } else { Vec::new() }
+                }
                 // A slow consumer is disconnected and reconnects (`docs/ARCHITECTURE.md` section 4).
                 Err(RecvError::Lagged(_)) => vec![Action::Close(CLOSE_POLICY, "too slow")],
                 Err(RecvError::Closed) => break 'connection,
