@@ -13,6 +13,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "coverage/**",
     "src/wasm/pkg/**",
+    "src/types/generated/**",
     "next-env.d.ts",
   ]),
 ]);

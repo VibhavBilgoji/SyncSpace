@@ -5,6 +5,7 @@
 //! password of 8 emoji is 8 characters. Emails are ASCII only and stored lower-cased.
 
 use serde::Deserialize;
+use ts_rs::TS;
 
 use crate::error::ApiError;
 
@@ -15,14 +16,16 @@ pub const MAX_EMAIL_CHARS: usize = 254;
 const MAX_LOCAL_PART_CHARS: usize = 64;
 const MAX_DOMAIN_LABEL_CHARS: usize = 63;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(rename = "RegisterRequest")]
 pub struct RegisterInput {
     pub name: String,
     pub email: String,
     pub password: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
+#[ts(rename = "LoginRequest")]
 pub struct LoginInput {
     pub email: String,
     pub password: String,

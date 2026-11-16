@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use mongodb::bson::DateTime;
 use mongodb::bson::oid::ObjectId;
 use serde::Serialize;
+use ts_rs::TS;
 
 use super::validation::{
     AddMemberInput, CreateInput, PatchInput, RoleInput, validate_create, validate_member_email,
@@ -30,7 +31,8 @@ fn iso(date: DateTime) -> String {
 }
 
 /// The `Workspace` of `docs/API.md` section 4, with the caller's role in it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(rename = "Workspace")]
 pub struct WorkspaceResponse {
     pub id: String,
     pub name: String,
@@ -56,7 +58,8 @@ impl WorkspaceResponse {
 }
 
 /// The `WorkspaceSummary` of `docs/API.md` section 4: what a card in the workspace picker shows.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(rename = "WorkspaceSummary")]
 pub struct SummaryResponse {
     pub id: String,
     pub name: String,
@@ -69,7 +72,8 @@ pub struct SummaryResponse {
 }
 
 /// The `Member` of `docs/API.md` section 4.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
+#[ts(rename = "Member")]
 pub struct MemberResponse {
     pub user_id: String,
     pub name: String,

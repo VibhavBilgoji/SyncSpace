@@ -73,7 +73,7 @@ Each integration test creates its own database (`syncspace_test_<uuid>`) and dro
 | Line coverage, `sync-crdt` (`cargo llvm-cov`) | 90% or more |
 | Line coverage, `server` | 75% or more |
 | Web: `lint`, `typecheck`, `test --coverage` | pass; 70% or more lines on `src/lib` and `src/components` |
-| Generated TypeScript types up to date | `git diff --exit-code` after generation |
+| Generated TypeScript types up to date | `cargo run -p server --bin gen-types`, then `git diff --exit-code` and no untracked file in `apps/web/src/types/generated` (the `rust` job); the same comparison is the test `the_committed_types_are_up_to_date` in `crates/server/tests/typegen.rs`, so `cargo test` fails locally first |
 | Playwright e2e | must pass on `main` and on PRs that touch `apps/web` or `crates/server` |
 
 **How coverage is measured.** `cargo llvm-cov`, line coverage of the native build (the commands are in `CLAUDE.md`). It needs the `llvm-tools-preview` component, which `rust-toolchain.toml` installs, and for `server` a MongoDB 8.0 at `MONGODB_URI`. Three things are not in the numbers: `sync-crdt`'s `wasm.rs`, which only compiles for `wasm32` and is covered by `wasm-pack test`; code that runs only in a child process (`main.rs`, `telemetry.rs`, the spike relay binary), which `crates/server/tests/binary.rs` exercises but whose coverage data is not collected, so those files read 0%; and test code itself. CI runs the `sync-crdt` property tests with `PROPTEST_CASES=500` for the coverage step because the percentage does not depend on the case count; the full runs are in the normal test step and the nightly workflow. Both gates block the build. The current numbers are in `docs/PROGRESS.md`.

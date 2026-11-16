@@ -161,6 +161,17 @@ type ChangeType = "AUTOMATIC" | "MANUAL" | "RESTORE";
 interface User { id: string; name: string; email: string }
 interface Workspace { id: string; name: string; slug: string; owner_id: string; role: Role /* the caller's */; created_at: string; updated_at: string }
 interface WorkspaceSummary { id: string; name: string; slug: string; role: Role; is_owner: boolean; member_count: number; document_count: number; board_count: number }
+interface UserRef { id: string; name: string }
+interface DocumentSummary { id: string; title: string; icon: string; revision: number; updated_at: string }
+interface Document { id: string; workspace_id: string; title: string; icon: string; revision: number; blocks: Block[];
+                     created_by: string; created_at: string; updated_at: string }
+interface StatusCounts { backlog: number; todo: number; in_progress: number; review: number; done: number }
+interface Board { id: string; workspace_id: string; name: string; task_counts: StatusCounts; created_at: string }
+interface Page<T> { items: T[]; next_cursor: string | null }
+type ErrorCode = "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "VALIDATION"
+               | "RATE_LIMITED" | "PAYLOAD_TOO_LARGE" | "METHOD_NOT_ALLOWED" | "INTERNAL";
+interface ApiErrorBody { code: ErrorCode; message: string; details?: Record<string, string> }
+interface ApiErrorResponse { error: ApiErrorBody }
 interface Member { user_id: string; name: string; email: string; role: Role; joined_at: string; is_owner: boolean }
 interface Block { block_id: string; type: BlockType; content: string; properties: Record<string, unknown>; order: number }
 interface Task { id: string; board_id: string; title: string; description: string; status: Status; priority: Priority;
@@ -171,4 +182,4 @@ interface AuditEntry { event_id: string; actor: { id: string; name: string }; ac
                        entity_id: string; metadata: Record<string, unknown>; timestamp: string }
 ```
 
-Generate the TypeScript types from the Rust structs (`ts-rs`) so the two never drift; a CI check fails if the generated file is stale.
+The TypeScript types are generated from the Rust structs (`ts-rs`) so the two never drift: `cargo run -p server --bin gen-types` writes `apps/web/src/types/generated/` (one file per type plus `index.ts`), the files are committed and never edited by hand, and CI regenerates them and fails when anything differs. The block above is the human-readable view and a test checks that it lists exactly the generated types; the request bodies (`RegisterRequest`, `LoginRequest`, `CreateWorkspaceRequest`, `UpdateWorkspaceRequest`, `AddMemberRequest`, `ChangeRoleRequest`) are generated from the bodies in the tables of section 2. `Document`, `DocumentSummary`, `Board`, `StatusCounts`, `UserRef` and `Page` are provisional until tasks 2.2 and 5.1 build their endpoints (the tables of section 2 name only some of their fields); the task that builds an endpoint may change them and regenerates. The WebSocket frame types are added with the hub (task 2.3).
