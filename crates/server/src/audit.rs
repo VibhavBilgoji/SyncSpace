@@ -37,6 +37,18 @@ pub enum AuditEvent {
         document_id: ObjectId,
         title: String,
     },
+    /// A named version was saved.
+    VersionSave {
+        document_id: ObjectId,
+        version_number: i32,
+        label: String,
+    },
+    /// A version was restored; `version_number` is the new RESTORE row.
+    VersionRestore {
+        document_id: ObjectId,
+        restored_from: i32,
+        version_number: i32,
+    },
 }
 
 impl AuditEvent {
@@ -47,6 +59,8 @@ impl AuditEvent {
             Self::RoleChange { .. } => "ROLE_CHANGE",
             Self::DocCreate { .. } => "DOC_CREATE",
             Self::DocDelete { .. } => "DOC_DELETE",
+            Self::VersionSave { .. } => "VERSION_SAVE",
+            Self::VersionRestore { .. } => "VERSION_RESTORE",
         }
     }
 
@@ -54,7 +68,10 @@ impl AuditEvent {
         match self {
             Self::MemberAdd { .. } | Self::MemberRemove { .. } => "WORKSPACE",
             Self::RoleChange { .. } => "MEMBER",
-            Self::DocCreate { .. } | Self::DocDelete { .. } => "DOCUMENT",
+            Self::DocCreate { .. }
+            | Self::DocDelete { .. }
+            | Self::VersionSave { .. }
+            | Self::VersionRestore { .. } => "DOCUMENT",
         }
     }
 
@@ -64,9 +81,10 @@ impl AuditEvent {
         match self {
             Self::MemberAdd { .. } | Self::MemberRemove { .. } => workspace_id.to_hex(),
             Self::RoleChange { user_id, .. } => user_id.to_hex(),
-            Self::DocCreate { document_id, .. } | Self::DocDelete { document_id, .. } => {
-                document_id.to_hex()
-            }
+            Self::DocCreate { document_id, .. }
+            | Self::DocDelete { document_id, .. }
+            | Self::VersionSave { document_id, .. }
+            | Self::VersionRestore { document_id, .. } => document_id.to_hex(),
         }
     }
 
@@ -85,6 +103,16 @@ impl AuditEvent {
             Self::DocCreate { title, .. } | Self::DocDelete { title, .. } => {
                 doc! { "title": title }
             }
+            Self::VersionSave {
+                version_number,
+                label,
+                ..
+            } => doc! { "version_number": *version_number, "label": label },
+            Self::VersionRestore {
+                restored_from,
+                version_number,
+                ..
+            } => doc! { "restored_from": *restored_from, "version_number": *version_number },
         }
     }
 

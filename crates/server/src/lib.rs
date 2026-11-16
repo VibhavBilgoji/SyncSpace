@@ -16,4 +16,5 @@ pub mod metrics;
 pub mod rbac;
 pub mod telemetry;
 pub mod typegen;
+pub mod versions;
 pub mod workspaces;

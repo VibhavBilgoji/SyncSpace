@@ -17,7 +17,7 @@ use ts_rs::{Config, TS};
 
 use crate::api_types::{
     ApiErrorBody, ApiErrorResponse, AuditEntry, Block, BlockType, Board, ChangeType, Document,
-    DocumentSummary, ErrorCode, Page, Priority, Status, StatusCounts, Task, UserRef,
+    DocumentSummary, ErrorCode, Page, Priority, Status, StatusCounts, Task, UserRef, VersionDetail,
     VersionSummary,
 };
 use crate::auth::handlers::UserResponse;
@@ -29,6 +29,7 @@ use crate::documents::validation::{
 };
 use crate::hub::frames::{ClientFrame, ServerFrame, SocketErrorCode};
 use crate::rbac::Role;
+use crate::versions::handlers::SaveInput as SaveVersionInput;
 use crate::workspaces::handlers::{MemberResponse, SummaryResponse, WorkspaceResponse};
 use crate::workspaces::validation::{AddMemberInput, CreateInput, PatchInput, RoleInput};
 
@@ -96,6 +97,7 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     ClientFrame::export_all(config)?;
     SocketErrorCode::export_all(config)?;
     PatchDocumentInput::export_all(config)?;
+    SaveVersionInput::export_all(config)?;
     // Types of endpoints that come later (`api_types`).
     BlockType::export_all(config)?;
     Block::export_all(config)?;
@@ -106,6 +108,7 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     DocumentSummary::export_all(config)?;
     Document::export_all(config)?;
     VersionSummary::export_all(config)?;
+    VersionDetail::export_all(config)?;
     StatusCounts::export_all(config)?;
     Board::export_all(config)?;
     Task::export_all(config)?;

@@ -192,6 +192,7 @@ interface Task { id: string; board_id: string; title: string; description: strin
                  assignee_ids: string[]; tags: string[]; order: number; created_at: string; updated_at: string }
 interface VersionSummary { version_number: number; change_type: ChangeType; label: string | null; restored_from: number | null;
                            restored_from_kept: boolean | null; created_by: { id: string; name: string } | null; created_at: string }
+interface VersionDetail { version: VersionSummary; blocks: Block[] }
 interface AuditEntry { event_id: string; actor: { id: string; name: string }; action: string; entity_type: string;
                        entity_id: string; metadata: Record<string, unknown>; timestamp: string }
 ```

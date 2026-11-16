@@ -121,6 +121,13 @@ pub struct VersionSummary {
     pub created_at: String,
 }
 
+/// One version with its blocks (`GET /documents/:id/versions/:n`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct VersionDetail {
+    pub version: VersionSummary,
+    pub blocks: Vec<Block>,
+}
+
 /// How many tasks a board has in each column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct StatusCounts {
