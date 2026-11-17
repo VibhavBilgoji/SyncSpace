@@ -778,15 +778,26 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
             }
         }
     }
-    // When the server cut the sender off, say how (the close code the sender can still read).
-    let mut sender_closed = None;
+    // When the server cut the sender off, say how: everything the sender can still read, up to
+    // and including the close frame (the first thing in its buffer is only the join-time PRESENCE_COUNT).
+    let mut sender_saw = Vec::new();
     if send_error.is_some() {
-        sender_closed = Some(
-            sender
-                .recv_within(Duration::from_secs(2))
-                .await
-                .map(|frame| format!("{frame:?}")),
-        );
+        while sender_saw.len() < 20 {
+            match sender.recv_within(Duration::from_secs(3)).await {
+                Some(Frame::Closed(code)) => {
+                    sender_saw.push(format!("closed {code:?}"));
+                    break;
+                }
+                Some(Frame::Json(body)) => sender_saw.push(body.to_string()),
+                Some(Frame::Binary(bytes)) => {
+                    sender_saw.push(format!("binary {} bytes", bytes.len()))
+                }
+                None => {
+                    sender_saw.push("silence".to_string());
+                    break;
+                }
+            }
+        }
     }
     let mut received = 0u32;
     let outcome = loop {
@@ -800,7 +811,7 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
         outcome,
         Some(Some(CLOSE_POLICY)),
         "sender sent {sent} of 600 frames (send error: {send_error:?}; read from the sender \
-         afterwards: {sender_closed:?}); the slow socket read {received} frames and then heard \
+         afterwards: {sender_saw:?}); the slow socket read {received} frames and then heard \
          nothing for {:?}",
         common::ws::WAIT
     );
