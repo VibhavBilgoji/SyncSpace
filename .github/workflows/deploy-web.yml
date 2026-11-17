@@ -1,0 +1,72 @@
+name: deploy-web
+
+# After CI is green on main: build the Wasm package here (Vercel's machines have no Rust) and
+# deploy a prebuilt output to Vercel (docs/DEPLOYMENT.md section 4). Until the Vercel secrets
+# exist (docs/PROGRESS.md, "First deploy"), a push to main skips the deploy with a notice.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Say why nothing is deployed
+        if: env.HAS_VERCEL != 'true'
+        run: echo "::notice::The Vercel secrets (VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID) are not set, so nothing was deployed. See docs/PROGRESS.md, First deploy."
+      - uses: actions/checkout@v7
+        if: env.HAS_VERCEL == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.HAS_VERCEL == 'true'
+        with:
+          toolchain: 1.100.0
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        if: env.HAS_VERCEL == 'true'
+      - uses: taiki-e/install-action@v2
+        if: env.HAS_VERCEL == 'true'
+        with:
+          tool: wasm-pack@0.15.1
+      - uses: pnpm/action-setup@v6
+        if: env.HAS_VERCEL == 'true'
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v7
+        if: env.HAS_VERCEL == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - if: env.HAS_VERCEL == 'true'
+        run: pnpm --dir apps/web install --frozen-lockfile
+      - if: env.HAS_VERCEL == 'true'
+        run: pnpm --dir apps/web wasm
+      - if: env.HAS_VERCEL == 'true'
+        run: npm i -g vercel@latest
+      - if: env.HAS_VERCEL == 'true'
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+        working-directory: apps/web
+      - if: env.HAS_VERCEL == 'true'
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+        working-directory: apps/web
+      - if: env.HAS_VERCEL == 'true'
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        working-directory: apps/web

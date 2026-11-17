@@ -1,0 +1,16 @@
+# Only the Rust workspace goes into the API image.
+.git
+.github
+.claude
+target
+**/target
+apps
+e2e
+docs
+infrastructure
+node_modules
+**/node_modules
+.env
+.env.*
+!.env.example
+*.md

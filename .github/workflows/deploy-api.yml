@@ -1,0 +1,86 @@
+name: deploy-api
+
+# After CI is green on main: build the API image, push it to GitHub Container Registry and tell
+# Render to run it (docs/DEPLOYMENT.md section 4). A pull request that touches the image only
+# builds it, so a broken Dockerfile is found before the merge.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - crates/server/Dockerfile
+      - .dockerignore
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/deploy-api.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    # A workflow_run fires for failed CI runs too: only a green one deploys.
+    if: github.event_name == 'pull_request' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # Secrets cannot be tested in `if:` directly; the steps check these instead. Until the
+      # secrets exist (docs/PROGRESS.md, "First deploy"), a push to main builds and skips the rest.
+      HAS_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+      API_URL: ${{ vars.API_URL }}
+      DEPLOY: ${{ github.event_name == 'workflow_run' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # For workflow_run, the commit CI tested, not whatever main is by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Name the image (the registry wants it lower case)
+        id: image
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner}/syncspace-api" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.DEPLOY == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/server/Dockerfile
+          push: ${{ env.DEPLOY == 'true' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.sha }}
+            ${{ steps.image.outputs.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Tell Render to run the new image
+        if: env.DEPLOY == 'true' && env.HAS_HOOK == 'true'
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          IMAGE: ${{ steps.image.outputs.name }}:${{ steps.image.outputs.sha }}
+        run: curl -fsS -X POST "${RENDER_DEPLOY_HOOK}?imgURL=${IMAGE}" > /dev/null
+      - name: Wait for /healthz
+        if: env.DEPLOY == 'true' && env.HAS_HOOK == 'true' && env.API_URL != ''
+        run: |
+          for i in $(seq 1 36); do
+            body=$(curl -fsS --max-time 10 "${API_URL%/}/healthz" || true)
+            if echo "$body" | grep -q '"mongo":"ok"'; then echo "healthy: $body"; exit 0; fi
+            echo "attempt $i: not healthy yet"; sleep 5
+          done
+          echo "::error::the API did not report healthy within 3 minutes"; exit 1
+      - name: Say why nothing was deployed
+        if: env.DEPLOY == 'true' && env.HAS_HOOK != 'true'
+        run: echo "::notice::Image pushed, but the RENDER_DEPLOY_HOOK secret is not set, so Render was not told. See docs/PROGRESS.md, First deploy."

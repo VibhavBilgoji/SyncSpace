@@ -96,7 +96,7 @@ Pin action versions to the latest major at implementation time.
 
 `.gitattributes` forces LF line endings so `prettier --check` gives the same result on Windows and on the runner.
 
-### deploy-api.yml (push to `main`, after CI passes)
+### deploy-api.yml (after CI passes on `main`; a pull request that touches the image only builds it)
 1. Build the Docker image (below) with `docker/build-push-action`, using GitHub Actions cache.
 2. Push to GitHub Container Registry: `ghcr.io/<owner>/syncspace-api:<git-sha>` and `:latest`.
 3. Trigger Render: `curl -fsS -X POST "$RENDER_DEPLOY_HOOK?imgURL=ghcr.io/<owner>/syncspace-api:<git-sha>"` (store the hook URL as the secret `RENDER_DEPLOY_HOOK`).
@@ -104,7 +104,7 @@ Pin action versions to the latest major at implementation time.
 
 Building in Actions avoids Render's free build limits; Rust builds are heavy.
 
-### deploy-web.yml (push to `main`, after CI passes)
+### deploy-web.yml (after CI passes on `main`)
 Vercel's build machines have no Rust toolchain, so build the Wasm package in Actions and deploy a prebuilt output:
 ```yaml
       - run: pnpm --dir apps/web wasm
@@ -242,7 +242,7 @@ The server reads `.env` from the current directory (or a parent) and then the re
 | First request takes about a minute | Render free instance was asleep; expected |
 | Login works but every request then returns 401 | Cookie set on the API domain instead of the web domain: call REST through `/api/*` on the web domain, not the Render URL |
 | WebSocket closes immediately with 4001 | Ticket expired or reused; get a fresh ticket per connection attempt |
-| WebSocket closes with 1008 right after connecting | `Origin` not in `ALLOWED_ORIGINS` (include the exact Vercel URL, no trailing slash) |
+| The WebSocket handshake fails with HTTP 403 | `Origin` missing or not in `ALLOWED_ORIGINS` (include the exact Vercel URL, no trailing slash) |
 | The server exits at once with "the configuration has problems" (exit code 2) | A required variable is missing or invalid; the message lists every problem. Secrets must be base64 of at least 32 bytes and `JWT_SECRET` must differ from `TICKET_SECRET` |
 | The server exits with "stopped with an error" (exit code 1) | MongoDB is not reachable (not running, wrong URI, Atlas network access) or index creation failed; the log has the cause |
 | `/healthz` answers 503 `{"status":"degraded","mongo":"error"}` | The server is up but cannot reach MongoDB; the server log has the driver error |
