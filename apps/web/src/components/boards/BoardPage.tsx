@@ -1,5 +1,17 @@
 "use client";
 
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWorkspace } from "@/components/shell/WorkspaceShell";
@@ -10,7 +22,9 @@ import { api } from "@/lib/api";
 import { useWorkspaceSocket } from "@/lib/workspaceSocket";
 import type { Board, Member, Status, Task } from "@/types/generated";
 import { COLUMNS } from "./columns";
-import { TaskCard } from "./TaskCard";
+import { SCREEN_READER_INSTRUCTIONS, announcements, applyPlan, moveBody, planMove } from "./dnd";
+import { DroppableColumn, SortableTaskCard } from "./Sortable";
+import { TaskCard, TaskCardGhost } from "./TaskCard";
 import { TaskDialog, type TaskDialogMode } from "./TaskDialog";
 
 type Load =
@@ -26,7 +40,11 @@ function sorted(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => rank(a.status) - rank(b.status) || a.order - b.order);
 }
 
-/** Frames 25 to 32 for the reduced board: columns, cards, move buttons, no drag and drop. */
+/**
+ * Frames 25 to 32: columns and cards. A task moves by dragging it (pointer, or keyboard from the
+ * handle on the card), with the arrow buttons or with the status dropdown of its dialog; the
+ * last two work for people who cannot or do not want to drag.
+ */
 export function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>();
   const workspace = useWorkspace();
@@ -35,6 +53,12 @@ export function BoardPage() {
   const [state, setState] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [dialog, setDialog] = useState<TaskDialogMode | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  // A few pixels before a drag starts, so that a click on a card still opens it.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +78,7 @@ export function BoardPage() {
     };
   }, [workspace.id, boardId, attempt]);
 
-  // There is no live board socket: take other people's changes when the window comes back.
+  // Safety net next to the workspace socket: load again when the window comes back.
   const refresh = useCallback(() => {
     api.boards
       .tasks(boardId)
@@ -129,6 +153,26 @@ export function BoardPage() {
     }
   }
 
+  /** A drop: show the task in its new place at once, ask the server, and undo on failure. */
+  async function onDragEnd(event: DragEndEvent) {
+    setDragging(null);
+    if (state.status !== "ready" || !event.over) return;
+    const id = String(event.active.id);
+    const plan = planMove(state.tasks, id, String(event.over.id));
+    if (!plan) return;
+    setState((current) =>
+      current.status === "ready"
+        ? { ...current, tasks: sorted(applyPlan(current.tasks, id, plan)) }
+        : current,
+    );
+    try {
+      replace(await api.boards.moveTask(id, moveBody(plan)));
+    } catch {
+      toast({ title: "Could not move the task", tone: "danger" });
+      refresh();
+    }
+  }
+
   if (state.status === "loading") {
     return (
       <div aria-busy="true" aria-label="Loading board" className="flex gap-4">
@@ -162,6 +206,89 @@ export function BoardPage() {
   }
 
   const { board, tasks, members } = state;
+  const draggedTask = tasks.find((t) => t.id === dragging) ?? null;
+  const assigneesOf = (task: Task) => task.assignee_ids.flatMap((id) => names.get(id) ?? []);
+  const columns = (
+    <div className="flex gap-4 overflow-x-auto pb-4">
+      {COLUMNS.map((column) => {
+        const inColumn = tasks.filter((t) => t.status === column.status);
+        const body = (
+          <>
+            {inColumn.length === 0 ? (
+              <div className="rounded-card border border-dashed border-border px-3 py-6 text-center text-ui-sm text-text-faint">
+                <p>No tasks</p>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setDialog({ kind: "create", status: column.status })}
+                    className="mt-1 text-text-muted hover:text-text"
+                  >
+                    + Add task
+                  </button>
+                )}
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {inColumn.map((task) =>
+                  canEdit ? (
+                    <SortableTaskCard
+                      key={task.id}
+                      task={task}
+                      assignees={assigneesOf(task)}
+                      canEdit={canEdit}
+                      onOpen={(t) => setDialog({ kind: "edit", task: t })}
+                      onMove={(t, to) => void move(t, to)}
+                    />
+                  ) : (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      assignees={assigneesOf(task)}
+                      canEdit={canEdit}
+                      onOpen={(t) => setDialog({ kind: "edit", task: t })}
+                      onMove={(t, to) => void move(t, to)}
+                    />
+                  ),
+                )}
+              </ul>
+            )}
+          </>
+        );
+        return (
+          <section
+            key={column.status}
+            aria-label={column.label}
+            className="flex w-64 shrink-0 flex-col gap-3"
+          >
+            <header className="flex items-center gap-2">
+              <span aria-hidden="true" className={`size-2 rounded-full ${column.dot}`} />
+              <h2 className="flex-1 text-micro text-text-muted uppercase">{column.label}</h2>
+              <span aria-label={`${inColumn.length} tasks`} className="text-micro text-text-muted">
+                {inColumn.length}
+              </span>
+              {canEdit && (
+                <button
+                  type="button"
+                  aria-label={`Add task to ${column.label}`}
+                  onClick={() => setDialog({ kind: "create", status: column.status })}
+                  className="rounded-control px-1.5 text-ui-base text-text-muted hover:bg-hover hover:text-text"
+                >
+                  +
+                </button>
+              )}
+            </header>
+            {canEdit ? (
+              <DroppableColumn status={column.status} taskIds={inColumn.map((t) => t.id)}>
+                {body}
+              </DroppableColumn>
+            ) : (
+              body
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
   return (
     <div>
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -173,66 +300,30 @@ export function BoardPage() {
         )}
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {COLUMNS.map((column) => {
-          const inColumn = tasks.filter((t) => t.status === column.status);
-          return (
-            <section
-              key={column.status}
-              aria-label={column.label}
-              className="flex w-64 shrink-0 flex-col gap-3"
-            >
-              <header className="flex items-center gap-2">
-                <span aria-hidden="true" className={`size-2 rounded-full ${column.dot}`} />
-                <h2 className="flex-1 text-micro text-text-muted uppercase">{column.label}</h2>
-                <span
-                  aria-label={`${inColumn.length} tasks`}
-                  className="text-micro text-text-muted"
-                >
-                  {inColumn.length}
-                </span>
-                {canEdit && (
-                  <button
-                    type="button"
-                    aria-label={`Add task to ${column.label}`}
-                    onClick={() => setDialog({ kind: "create", status: column.status })}
-                    className="rounded-control px-1.5 text-ui-base text-text-muted hover:bg-hover hover:text-text"
-                  >
-                    +
-                  </button>
-                )}
-              </header>
-              {inColumn.length === 0 ? (
-                <div className="rounded-card border border-dashed border-border px-3 py-6 text-center text-ui-sm text-text-faint">
-                  <p>No tasks</p>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setDialog({ kind: "create", status: column.status })}
-                      className="mt-1 text-text-muted hover:text-text"
-                    >
-                      + Add task
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {inColumn.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      assignees={task.assignee_ids.flatMap((id) => names.get(id) ?? [])}
-                      canEdit={canEdit}
-                      onOpen={(t) => setDialog({ kind: "edit", task: t })}
-                      onMove={(t, to) => void move(t, to)}
-                    />
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-      </div>
+      {canEdit ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          accessibility={{
+            announcements: announcements(tasks),
+            screenReaderInstructions: { draggable: SCREEN_READER_INSTRUCTIONS },
+          }}
+          onDragStart={(event: DragStartEvent) => setDragging(String(event.active.id))}
+          onDragEnd={(event) => void onDragEnd(event)}
+          onDragCancel={() => setDragging(null)}
+        >
+          {columns}
+          <DragOverlay>
+            {draggedTask ? (
+              <ul className="w-64">
+                <TaskCardGhost task={draggedTask} assignees={assigneesOf(draggedTask)} />
+              </ul>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      ) : (
+        columns
+      )}
 
       {dialog && (
         <TaskDialog
