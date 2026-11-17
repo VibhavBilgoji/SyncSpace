@@ -23,7 +23,7 @@ use server::rbac::{Access, Role};
 
 /// Documented routes of features that later tasks build. When a task adds them to the table,
 /// it also adds a fixture, and the entry here stops mattering.
-const NOT_BUILT_YET: &[&str] = &["/workspaces/{wid}/audit"];
+const NOT_BUILT_YET: &[&str] = &[];
 
 /// The people in one test workspace, and one spare account.
 struct Ctx {
@@ -172,6 +172,10 @@ fn fixture(key: &str) -> Option<Fixture> {
         "PATCH /tasks/{id}/move" => Fixture {
             ok: 200,
             body: |_| Some(json!({"to_status": "DONE"})),
+        },
+        "GET /workspaces/{wid}/audit" => Fixture {
+            ok: 200,
+            body: none,
         },
         "DELETE /tasks/{id}" => Fixture {
             ok: 204,
@@ -427,6 +431,7 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "PATCH /tasks/{id}",
         "PATCH /tasks/{id}/move",
         "DELETE /tasks/{id}",
+        "GET /workspaces/{wid}/audit",
     ];
     let with_fixture: BTreeSet<String> = probes
         .iter()
