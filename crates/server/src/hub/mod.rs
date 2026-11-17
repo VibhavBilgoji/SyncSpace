@@ -60,6 +60,10 @@ pub struct HubConfig {
     /// Largest document state accepted, kept below `max_frame_bytes` so that the full state a
     /// late joiner receives fits the frame limit the client enforces.
     pub max_state_bytes: usize,
+    /// How many messages a room's channel holds per connection before a connection that has not
+    /// read them is closed as "too slow". Every update a connection sends is also queued as an
+    /// echo for itself, so this must stay well above the update burst: at least 4 times it.
+    pub broadcast_capacity: usize,
     /// Document updates: 60 per second, burst 120.
     pub updates: BucketConfig,
     /// Awareness: 20 per second, burst 40.
@@ -75,6 +79,7 @@ impl Default for HubConfig {
             max_frame_bytes: 1024 * 1024,
             hard_limit_bytes: 4 * 1024 * 1024,
             max_state_bytes: 768 * 1024,
+            broadcast_capacity: DEFAULT_BROADCAST_CAPACITY,
             updates: BucketConfig {
                 burst: 120,
                 per_second: 60,
@@ -86,6 +91,9 @@ impl Default for HubConfig {
         }
     }
 }
+
+/// 512 messages: more than 4 times the update burst (120), see [`HubConfig::broadcast_capacity`].
+pub const DEFAULT_BROADCAST_CAPACITY: usize = 512;
 
 /// Why a room could not be opened.
 #[derive(Debug)]
@@ -128,6 +136,7 @@ impl Hub {
     pub async fn room(&self, db: &Database, id: ObjectId) -> Result<Arc<DocRoom>, RoomLookup> {
         let cell = self.rooms().entry(id).or_default().clone();
         let max_state_bytes = self.config.max_state_bytes;
+        let capacity = self.config.broadcast_capacity;
         let metrics = self.metrics.clone();
         let result = cell
             .get_or_try_init(|| async move {
@@ -143,6 +152,7 @@ impl Hub {
                     record.workspace_id,
                     &snapshot.bytes,
                     max_state_bytes,
+                    capacity,
                     metrics,
                 )
                 .map(Arc::new)

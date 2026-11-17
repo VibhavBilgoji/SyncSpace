@@ -16,10 +16,6 @@ use super::frames::ServerFrame;
 use crate::documents::SERVER_CLIENT_ID;
 use crate::metrics::Metrics;
 
-/// Messages kept for the slowest receiver. Together with the frame limit this bounds the backlog a
-/// stuck peer can pin in memory (`docs/ARCHITECTURE.md` section 4).
-const BROADCAST_CAPACITY: usize = 64;
-
 /// Something to send to the connections of a room.
 #[derive(Debug, Clone)]
 pub enum Outgoing {
@@ -68,11 +64,12 @@ impl DocRoom {
         workspace_id: ObjectId,
         snapshot: &[u8],
         max_state_bytes: usize,
+        broadcast_capacity: usize,
         metrics: Arc<Metrics>,
     ) -> Result<Self, CrdtError> {
         let doc = CrdtDocument::new(SERVER_CLIENT_ID)?;
         doc.apply_update(snapshot)?;
-        let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let (tx, _) = broadcast::channel(broadcast_capacity.max(1));
         Ok(Self {
             id,
             workspace_id,
