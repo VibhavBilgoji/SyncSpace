@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui/Toast";
+import { HeaderSlot, HeaderSlotProvider } from "@/lib/headerSlot";
 import type { DocumentSession } from "@/lib/doc/useDocumentSession";
 import type { VersionDetail } from "@/types/generated";
 import { DocumentPage } from "./DocumentPage";
@@ -9,12 +10,13 @@ const nav = vi.hoisted(() => ({
   replace: vi.fn(),
   search: new URLSearchParams(),
   role: "EDITOR" as "ADMIN" | "EDITOR" | "VIEWER",
+  members: 3,
 }));
 const api = vi.hoisted(() => ({
   documents: { get: vi.fn() },
   versions: { list: vi.fn(), get: vi.fn(), create: vi.fn(), restore: vi.fn() },
 }));
-const live = vi.hoisted(() => ({ status: "live" as string }));
+const live = vi.hoisted(() => ({ status: "live" as string, peers: [] as string[] }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ docId: "doc1", slug: "eng" }),
@@ -23,7 +25,12 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => nav.search,
 }));
 vi.mock("@/components/shell/WorkspaceShell", () => ({
-  useWorkspace: () => ({ role: nav.role, slug: "eng" }),
+  useWorkspace: () => ({
+    role: nav.role,
+    slug: "eng",
+    name: "Engineering",
+    member_count: nav.members,
+  }),
 }));
 vi.mock("@/lib/api", () => ({ api }));
 vi.mock("@/lib/session", () => ({
@@ -42,7 +49,7 @@ vi.mock("@/lib/doc/useDocumentSession", () => ({
       },
     ],
     activeSockets: 2,
-    peers: [],
+    peers: live.peers,
     saved: null,
     versionEvent: null,
     notice: null,
@@ -77,19 +84,26 @@ const detail: VersionDetail = {
   ],
 };
 
-function renderPage() {
-  return render(
-    <ToastProvider>
+const tree = (
+  <ToastProvider>
+    <HeaderSlotProvider>
+      <HeaderSlot />
       <DocumentPage />
-    </ToastProvider>,
-  );
+    </HeaderSlotProvider>
+  </ToastProvider>
+);
+
+function renderPage() {
+  return render(tree);
 }
 
 beforeEach(() => {
   nav.replace.mockReset();
   nav.search = new URLSearchParams();
   nav.role = "EDITOR";
+  nav.members = 3;
   live.status = "live";
+  live.peers = [];
   api.documents.get.mockResolvedValue({ id: "doc1", title: "Notes", icon: "📝" });
   api.versions.list.mockResolvedValue({ items: [manual], next_cursor: null });
   api.versions.get.mockReset();
@@ -101,7 +115,7 @@ describe("DocumentPage version history", () => {
     renderPage();
     expect(await screen.findByDisplayValue("Live text")).toBeInTheDocument();
     expect(screen.queryByLabelText("Version History")).not.toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: "Version history" });
+    const toggle = screen.getByRole("button", { name: "Version History" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(toggle);
     expect(nav.replace).toHaveBeenCalledWith("/w/eng/docs/doc1?history=1");
@@ -113,7 +127,7 @@ describe("DocumentPage version history", () => {
     expect(await screen.findByLabelText("Version History")).toBeInTheDocument();
     expect(await screen.findByText("Before the demo")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Live text")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Version history" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Version History" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -154,11 +168,7 @@ describe("DocumentPage version history", () => {
     expect(nav.replace).toHaveBeenCalledWith("/w/eng/docs/doc1");
     // The URL change closes the panel: render again without ?history=1.
     nav.search = new URLSearchParams();
-    view.rerender(
-      <ToastProvider>
-        <DocumentPage />
-      </ToastProvider>,
-    );
+    view.rerender(tree);
     await waitFor(() => expect(screen.getByDisplayValue("Live text")).toBeInTheDocument());
     expect(screen.queryByText(/Read-only archive/)).not.toBeInTheDocument();
   });
@@ -178,7 +188,7 @@ describe("DocumentPage version history", () => {
     live.status = "gone";
     renderPage();
     expect(await screen.findByText("This document was deleted.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Version history" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Version History" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Version History")).not.toBeInTheDocument();
   });
 
@@ -186,5 +196,98 @@ describe("DocumentPage version history", () => {
     api.documents.get.mockRejectedValue(new Error("404"));
     renderPage();
     expect(await screen.findByText("Document not found.")).toBeInTheDocument();
+  });
+});
+
+describe("DocumentPage header (UI_SPEC section 3)", () => {
+  it("puts Version History and a primary Share in the header slot, not in the page body", async () => {
+    const view = renderPage();
+    await screen.findByDisplayValue("Live text");
+    const slot = view.container.querySelector("[data-header-slot]") as HTMLElement;
+    expect(within(slot).getByRole("button", { name: "Version History" })).toBeInTheDocument();
+    expect(within(slot).getByRole("button", { name: "Share" })).toBeInTheDocument();
+    const buttons = within(slot)
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(buttons).toEqual(["Version History", "Share"]); // Version History, then Share on the right
+  });
+
+  it("shows the people here as avatars before the buttons: three, then +N", async () => {
+    live.peers = [
+      "Grace Hopper",
+      "Alan Turing",
+      "Edsger Dijkstra",
+      "Barbara Liskov",
+      "Ken Thompson",
+    ];
+    const view = renderPage();
+    await screen.findByDisplayValue("Live text");
+    const slot = view.container.querySelector("[data-header-slot]") as HTMLElement;
+    const people = within(slot).getByLabelText("People here now");
+    expect(within(people).getAllByRole("img")).toHaveLength(4); // 3 avatars and "+2"
+    expect(within(people).getByText("+2")).toBeInTheDocument();
+    const order = Array.from(slot.children).map(
+      (c) => c.getAttribute("aria-label") ?? c.textContent,
+    );
+    expect(order).toEqual(["People here now", "Version History", "Share"]);
+  });
+
+  it("shows no avatar strip when nobody else is here", async () => {
+    renderPage();
+    await screen.findByDisplayValue("Live text");
+    expect(screen.queryByLabelText("People here now")).not.toBeInTheDocument();
+  });
+
+  it("opens the Share dialog with the document link and the member count", async () => {
+    renderPage();
+    await screen.findByDisplayValue("Live text");
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Share Notes")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Only workspace members can open this document."),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Workspace link")).toHaveValue(
+      `${window.location.origin}/w/eng/docs/doc1`,
+    );
+    expect(within(dialog).getByText("3 members in Engineering.")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Admins and editors can edit. Viewers can read and preview versions.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("copies the link and says so, or says it could not", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderPage();
+    await screen.findByDisplayValue("Live text");
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/w/eng/docs/doc1`);
+    expect(await screen.findByText("Link copied")).toBeInTheDocument();
+
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    expect(await screen.findByText("Could not copy")).toBeInTheDocument();
+  });
+
+  it("says member in the singular for a workspace of one", async () => {
+    nav.members = 1;
+    renderPage();
+    await screen.findByDisplayValue("Live text");
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    expect(await screen.findByText("1 member in Engineering.")).toBeInTheDocument();
+  });
+
+  it("has no header buttons for a deleted document", async () => {
+    live.status = "gone";
+    renderPage();
+    await screen.findByText("This document was deleted.");
+    expect(screen.queryByRole("button", { name: "Share" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Version History" })).not.toBeInTheDocument();
   });
 });

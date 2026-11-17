@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { AvatarStack } from "@/components/ui/Avatar";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { formatWhen } from "@/components/versions/format";
@@ -98,12 +97,6 @@ export function DocumentEditor({
       )}
 
       <header className="mb-6">
-        {session.peers.length > 0 && (
-          <div className="mb-2 flex items-center justify-end gap-2" aria-label="People here now">
-            <AvatarStack names={session.peers} max={5} />
-            <span className="text-ui-sm text-text-muted">{session.peers.length} here</span>
-          </div>
-        )}
         <h1 className="text-display-xl">
           <span aria-hidden="true">{icon} </span>
           {title}

@@ -19,8 +19,8 @@ test("save a named version, restore it, and undo the restore", async ({ browser 
   await expect(editorBlock).toHaveValue("Version one text");
 
   // The owner opens the history (the editor does too, to watch it change) and saves a named version.
-  await owner.page.getByRole("button", { name: "Version history" }).click();
-  await editor.page.getByRole("button", { name: "Version history" }).click();
+  await owner.page.getByRole("button", { name: "Version History" }).click();
+  await editor.page.getByRole("button", { name: "Version History" }).click();
   await expect(owner.page.getByText("No versions yet")).toBeVisible();
   await owner.page.getByRole("button", { name: "Create Named Version" }).first().click();
   await owner.page.getByLabel("Label").fill("First draft");

@@ -46,23 +46,6 @@ describe("DocumentEditor", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows who else is here and hides the strip when nobody is", () => {
-    const { rerender } = renderEditor(fakeSession());
-    expect(screen.queryByLabelText("People here now")).not.toBeInTheDocument();
-    rerender(
-      <DocumentEditor
-        title="Notes"
-        icon="📝"
-        role="EDITOR"
-        session={fakeSession({ peers: ["Grace Hopper", "Alan Turing"] })}
-      />,
-    );
-    const strip = screen.getByLabelText("People here now");
-    expect(within(strip).getByRole("img", { name: "Grace Hopper" })).toBeInTheDocument();
-    expect(within(strip).getByRole("img", { name: "Alan Turing" })).toBeInTheDocument();
-    expect(strip).toHaveTextContent("2 here");
-  });
-
   it("says Waiting to sync and shows the reconnect banner while offline", () => {
     renderEditor(fakeSession({ status: "reconnecting" }));
     expect(screen.getByText(/Waiting to sync/)).toBeInTheDocument();

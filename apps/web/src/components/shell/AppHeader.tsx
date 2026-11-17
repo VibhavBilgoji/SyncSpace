@@ -1,5 +1,6 @@
 "use client";
 
+import { HeaderSlot } from "@/lib/headerSlot";
 import { useWorkspace } from "./WorkspaceShell";
 
 /** 52 px header: breadcrumb and the search field (the command palette is task 3.5). */
@@ -23,6 +24,7 @@ export function AppHeader({ section }: { section?: string }) {
         placeholder="Search or jump to...  Ctrl K"
         className="h-8 w-64 rounded-control border border-border bg-surface px-3 text-ui-sm placeholder:text-text-faint"
       />
+      <HeaderSlot />
     </header>
   );
 }
