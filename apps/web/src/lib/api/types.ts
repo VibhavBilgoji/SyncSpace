@@ -3,7 +3,12 @@ import type {
   CreateWorkspaceRequest,
   Document,
   DocumentSummary,
+  Page,
+  RestoreResponse,
+  SaveVersionRequest,
   UpdateDocumentRequest,
+  VersionDetail,
+  VersionSummary,
   WsTicketRequest,
   WsTicketResponse,
   LoginRequest,
@@ -36,8 +41,17 @@ export interface DocumentsApi {
   remove(id: string): Promise<void>;
 }
 
+export interface VersionsApi {
+  /** Newest first; `cursor` is the `next_cursor` of the previous page. */
+  list(docId: string, options?: { limit?: number; cursor?: string }): Promise<Page<VersionSummary>>;
+  create(docId: string, input: SaveVersionRequest): Promise<VersionSummary>;
+  get(docId: string, number: number): Promise<VersionDetail>;
+  restore(docId: string, number: number): Promise<RestoreResponse>;
+}
+
 export interface Api {
   auth: AuthApi;
   workspaces: WorkspacesApi;
   documents: DocumentsApi;
+  versions: VersionsApi;
 }
