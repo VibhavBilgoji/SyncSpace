@@ -782,17 +782,28 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     // and including the close frame (the first thing in its buffer is only the join-time PRESENCE_COUNT).
     let mut sender_saw = Vec::new();
     if send_error.is_some() {
+        // The raw close frame, so the reason text is kept (the test client reports only the code).
+        use futures_util::StreamExt;
         while sender_saw.len() < 20 {
-            match sender.recv_within(Duration::from_secs(3)).await {
-                Some(Frame::Closed(code)) => {
-                    sender_saw.push(format!("closed {code:?}"));
+            match tokio::time::timeout(Duration::from_secs(3), sender.stream.next()).await {
+                Ok(Some(Ok(Message::Close(frame)))) => {
+                    sender_saw.push(format!("closed {frame:?}"));
                     break;
                 }
-                Some(Frame::Json(body)) => sender_saw.push(body.to_string()),
-                Some(Frame::Binary(bytes)) => {
+                Ok(Some(Ok(Message::Text(body)))) => sender_saw.push(body.to_string()),
+                Ok(Some(Ok(Message::Binary(bytes)))) => {
                     sender_saw.push(format!("binary {} bytes", bytes.len()))
                 }
-                None => {
+                Ok(Some(Ok(_))) => {}
+                Ok(Some(Err(error))) => {
+                    sender_saw.push(format!("read error {error}"));
+                    break;
+                }
+                Ok(None) => {
+                    sender_saw.push("stream ended".to_string());
+                    break;
+                }
+                Err(_) => {
                     sender_saw.push("silence".to_string());
                     break;
                 }
