@@ -18,6 +18,24 @@ const api = vi.hoisted(() => ({
   workspaces: { members: vi.fn() },
 }));
 
+const dnd = vi.hoisted(() => ({
+  props: null as null | {
+    onDragStart(event: unknown): void;
+    onDragEnd(event: unknown): void;
+    onDragCancel(): void;
+  },
+}));
+vi.mock("@dnd-kit/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dnd-kit/core")>();
+  return {
+    ...actual,
+    // The real thing, with its props kept so a test can fire a drop without a pointer.
+    DndContext: (props: React.ComponentProps<typeof actual.DndContext>) => {
+      dnd.props = props as unknown as NonNullable<typeof dnd.props>;
+      return <actual.DndContext {...props} />;
+    },
+  };
+});
 const socket = vi.hoisted(() => ({
   handlers: null as null | {
     onFrame(frame: unknown): void;
@@ -112,6 +130,7 @@ const cardsIn = (label: string) =>
     .map((b) => b.getAttribute("aria-label")?.replace("Open task ", ""));
 
 beforeEach(() => {
+  dnd.props = null;
   socket.handlers = null;
   ctx.role = "EDITOR";
   for (const fn of Object.values(api.boards)) fn.mockReset();
@@ -565,5 +584,110 @@ describe("live changes from the workspace socket", () => {
     emit(event("TASK_CREATED", { task: created }));
     emit(event("TASK_CREATED", { task: created }));
     expect(cardsIn("Backlog")).toEqual(["Write the plan", "Once"]);
+  });
+});
+
+describe("dragging a task", () => {
+  const drop = (active: string, over: string | null) =>
+    act(async () => {
+      dnd.props?.onDragStart({ active: { id: active } });
+      dnd.props?.onDragEnd({ active: { id: active }, over: over ? { id: over } : null });
+    });
+
+  it("gives every card a drag handle for an editor, with the instructions for a screen reader", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    for (const t of tasks) {
+      expect(screen.getByRole("button", { name: `Drag ${t.title}` })).toBeInTheDocument();
+    }
+    expect(await screen.findByText(/To pick up a task, press space or enter/)).toBeInTheDocument();
+    expect(dnd.props).not.toBeNull();
+  });
+
+  it("gives a viewer no handles and no drag and drop at all", async () => {
+    ctx.role = "VIEWER";
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    expect(screen.queryByRole("button", { name: /^Drag / })).not.toBeInTheDocument();
+    expect(dnd.props).toBeNull();
+    expect(screen.queryByText(/To pick up a task/)).not.toBeInTheDocument();
+  });
+
+  it("moves a card to another column at once, and sends the neighbours it was dropped between", async () => {
+    let answer: (task: Task) => void = () => undefined;
+    api.boards.moveTask.mockReturnValue(new Promise<Task>((resolve) => (answer = resolve)));
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    // "Write the plan" (Backlog) dropped on "Review the API", the second of To do.
+    await drop("a", "c");
+    expect(api.boards.moveTask).toHaveBeenCalledWith("a", {
+      to_status: "TODO",
+      before_id: "b",
+      after_id: "c",
+    });
+    // Before the server answers the card is already there.
+    expect(cardsIn("To do")).toEqual(["Build the API", "Write the plan", "Review the API"]);
+    expect(cardsIn("Backlog")).toEqual([]);
+    await act(async () => answer({ ...tasks[0]!, status: "TODO", order: 1.5 }));
+    expect(cardsIn("To do")).toEqual(["Build the API", "Write the plan", "Review the API"]);
+  });
+
+  it("drops on a column itself at its end, and on an empty column", async () => {
+    api.boards.moveTask.mockImplementation((id: string, body: { to_status: Task["status"] }) =>
+      Promise.resolve({ ...tasks.find((t) => t.id === id)!, status: body.to_status, order: 9 }),
+    );
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    // Done already holds "Ship it": the card goes behind it.
+    await drop("b", "column:DONE");
+    expect(api.boards.moveTask).toHaveBeenLastCalledWith("b", {
+      to_status: "DONE",
+      before_id: "d",
+    });
+    expect(cardsIn("Done")).toEqual(["Ship it", "Build the API"]);
+    // Review is empty: no neighbours at all.
+    await drop("a", "column:REVIEW");
+    expect(api.boards.moveTask).toHaveBeenLastCalledWith("a", { to_status: "REVIEW" });
+    expect(cardsIn("Review")).toEqual(["Write the plan"]);
+  });
+
+  it("reorders inside a column", async () => {
+    api.boards.moveTask.mockResolvedValue({ ...tasks[2]!, order: 0.5 });
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    await drop("c", "b");
+    expect(api.boards.moveTask).toHaveBeenCalledWith("c", { to_status: "TODO", after_id: "b" });
+    expect(cardsIn("To do")).toEqual(["Review the API", "Build the API"]);
+  });
+
+  it("does nothing when dropped on itself, outside any target, or in its own place", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    await drop("b", "b");
+    await drop("b", null);
+    await drop("c", "column:TODO"); // already the last one
+    expect(api.boards.moveTask).not.toHaveBeenCalled();
+    expect(cardsIn("To do")).toEqual(["Build the API", "Review the API"]);
+  });
+
+  it("puts the card back, says so and reloads when the server refuses", async () => {
+    api.boards.moveTask.mockRejectedValue(new ApiError(500, "INTERNAL", "internal error"));
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    await drop("a", "c");
+    expect(await screen.findByText("Could not move the task")).toBeInTheDocument();
+    await waitFor(() => expect(api.boards.tasks).toHaveBeenCalledTimes(2));
+    expect(cardsIn("Backlog")).toEqual(["Write the plan"]);
+    expect(cardsIn("To do")).toEqual(["Build the API", "Review the API"]);
+  });
+
+  it("still lets the arrow buttons and the dialog's dropdown move a card (the fallback)", async () => {
+    api.boards.moveTask.mockResolvedValue({ ...tasks[1]!, status: "IN_PROGRESS", order: 1 });
+    renderBoard();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Move Build the API to In progress" }),
+    );
+    await waitFor(() => expect(cardsIn("In progress")).toEqual(["Build the API"]));
+    expect(api.boards.moveTask).toHaveBeenCalledWith("b", { to_status: "IN_PROGRESS" });
   });
 });

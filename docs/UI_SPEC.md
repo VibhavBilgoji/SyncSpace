@@ -116,7 +116,7 @@ Nested documents in the sidebar are a design reference only: render a flat list.
 - **26 Filters.** Dropdown menus; filtering is client-side over the loaded tasks and reflected in the URL query.
 - **27a Create board, 27b Empty board.**
 - **28 Create task, 29 Task details and edit.** Fields: title, description, status, priority, assignees (multiple, members only), tags (comma separated). Details has Delete for ADMIN and EDITOR.
-- **30 Drag and drop.** dnd-kit with a drop ghost; keyboard dragging supported.
+- **30 Drag and drop.** dnd-kit with a drop ghost; keyboard dragging supported. Built: a handle on each card (space or enter lifts, arrows move, space or enter drops, escape cancels), a pointer drag from anywhere on the card, the whole column as a drop area. The arrow buttons on the card and the status dropdown of the details dialog stay as the way to move a task without dragging.
 - **31 Viewer board.** No create, no drag, read-only details.
 - **32 Delete task** confirmation.
 
