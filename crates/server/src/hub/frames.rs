@@ -4,10 +4,23 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::api_types::{UserRef, VersionSummary};
+use crate::api_types::{Board, Status, Task, UserRef, VersionSummary};
+
+/// What happened on a board (`BOARD_EVENT` of the workspace socket).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BoardEventKind {
+    TaskCreated,
+    TaskUpdated,
+    TaskMoved,
+    TaskDeleted,
+    BoardCreated,
+    /// A column was renumbered (1.0, 2.0, ...): the positions of its tasks changed, so reload them.
+    ColumnRenumbered,
+}
 
 /// A frame the server sends as text.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ServerFrame {
     /// The answer to a client `PING`; the client shows the round-trip time.
@@ -28,6 +41,21 @@ pub enum ServerFrame {
         restored_from: i32,
         by: UserRef,
         restore_version: VersionSummary,
+    },
+    /// Something changed on a board of the workspace (workspace socket). `task` is the task as it
+    /// is now (for a delete, as it was), `board` the new board, `status` the renumbered column.
+    BoardEvent {
+        board_id: String,
+        kind: BoardEventKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        task: Option<Task>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        board: Option<Board>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        status: Option<Status>,
     },
 }
 

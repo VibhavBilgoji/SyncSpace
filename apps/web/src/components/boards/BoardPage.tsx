@@ -7,6 +7,7 @@ import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { api } from "@/lib/api";
+import { useWorkspaceSocket } from "@/lib/workspaceSocket";
 import type { Board, Member, Status, Task } from "@/types/generated";
 import { COLUMNS } from "./columns";
 import { TaskCard } from "./TaskCard";
@@ -88,6 +89,28 @@ export function BoardPage() {
         : current,
     );
   }, []);
+
+  const remove = useCallback((id: string) => {
+    setState((current) =>
+      current.status === "ready"
+        ? { ...current, tasks: current.tasks.filter((t) => t.id !== id) }
+        : current,
+    );
+  }, []);
+
+  // Live changes of this board, from the workspace socket. Our own changes come back through it
+  // too, which is harmless: applying the same task twice changes nothing.
+  useWorkspaceSocket(workspace.id, {
+    onFrame: (frame) => {
+      if (frame.type !== "BOARD_EVENT" || frame.board_id !== boardId) return;
+      if (frame.kind === "COLUMN_RENUMBERED") refresh();
+      else if (frame.kind === "TASK_DELETED") {
+        if (frame.task) remove(frame.task.id);
+      } else if (frame.task) replace(frame.task);
+    },
+    // Events sent while the socket was down (or before it opened) were missed: load again.
+    onConnected: () => refresh(),
+  });
 
   const names = useMemo(
     () =>
@@ -228,11 +251,7 @@ export function BoardPage() {
             setDialog(null);
           }}
           onDeleted={(id) => {
-            setState((current) =>
-              current.status === "ready"
-                ? { ...current, tasks: current.tasks.filter((t) => t.id !== id) }
-                : current,
-            );
+            remove(id);
             setDialog(null);
           }}
         />

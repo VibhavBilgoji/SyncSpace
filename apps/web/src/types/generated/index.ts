@@ -6,6 +6,7 @@ export type { AuditEntry } from "./AuditEntry";
 export type { Block } from "./Block";
 export type { BlockType } from "./BlockType";
 export type { Board } from "./Board";
+export type { BoardEventKind } from "./BoardEventKind";
 export type { ChangeRoleRequest } from "./ChangeRoleRequest";
 export type { ChangeType } from "./ChangeType";
 export type { ClientFrame } from "./ClientFrame";

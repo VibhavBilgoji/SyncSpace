@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { api, isApiError } from "@/lib/api";
+import { useWorkspaceSocket } from "@/lib/workspaceSocket";
 import type { Board } from "@/types/generated";
 
 type State = { status: "loading" } | { status: "error" } | { status: "ready"; boards: Board[] };
@@ -40,6 +41,17 @@ export function BoardsPage() {
       cancelled = true;
     };
   }, [workspace.id, attempt]);
+
+  // A board made, or a task changed, by someone else: load the list again (the counts changed).
+  useWorkspaceSocket(workspace.id, {
+    onFrame: (frame) => {
+      if (frame.type !== "BOARD_EVENT") return;
+      api.boards
+        .list(workspace.id)
+        .then((boards) => setState({ status: "ready", boards }))
+        .catch(() => undefined);
+    },
+  });
 
   const createButton = canCreate ? (
     <Button onClick={() => setCreating(true)}>Create board</Button>

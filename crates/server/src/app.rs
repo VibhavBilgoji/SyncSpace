@@ -61,6 +61,10 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/healthz", get(health::healthz))
         .route("/ws/v1/docs/{id}", get(crate::hub::socket::doc_socket))
+        .route(
+            "/ws/v1/workspaces/{id}",
+            get(crate::hub::workspace_socket::workspace_socket),
+        )
         .route("/metrics", get(metrics_page))
         .nest("/api/v1", api_routes())
         .fallback(not_found)

@@ -49,11 +49,11 @@ const BLOCKING_THRESHOLD_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Deserialize)]
 pub struct TicketQuery {
-    ticket: Option<String>,
+    pub(super) ticket: Option<String>,
 }
 
 /// The `Origin` header must be present and one of the allowed origins, as written in the config.
-fn check_origin(headers: &HeaderMap, allowed: &[String]) -> Result<(), ApiError> {
+pub(super) fn check_origin(headers: &HeaderMap, allowed: &[String]) -> Result<(), ApiError> {
     let origin = headers
         .get(ORIGIN)
         .and_then(|value| value.to_str().ok())
@@ -138,14 +138,14 @@ async fn authorise(
 /// Sends a message and reports whether it went out in time. A peer that stops reading would
 /// otherwise block this task inside `send` for as long as the connection lives, and the task
 /// could not reach any other branch, including the lag check.
-async fn send_within<S>(sink: &mut S, message: Message, limit: Duration) -> bool
+pub(super) async fn send_within<S>(sink: &mut S, message: Message, limit: Duration) -> bool
 where
     S: Sink<Message> + Unpin,
 {
     matches!(timeout(limit, sink.send(message)).await, Ok(Ok(())))
 }
 
-async fn close<S>(sink: &mut S, code: u16, reason: &'static str, limit: Duration)
+pub(super) async fn close<S>(sink: &mut S, code: u16, reason: &'static str, limit: Duration)
 where
     S: Sink<Message> + Unpin,
 {
@@ -172,7 +172,7 @@ fn binary(bytes: Vec<u8>) -> Action {
 
 /// Per-connection state.
 /// The longest text frame accepted (`PING` is under 40 bytes).
-const MAX_TEXT_BYTES: usize = 1024;
+pub(super) const MAX_TEXT_BYTES: usize = 1024;
 
 struct Connection {
     id: u64,

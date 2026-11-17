@@ -77,7 +77,57 @@ pub async fn connect_raw(
     Ok(stream)
 }
 
+pub fn workspace_url(app: &TestApp, workspace_id: &str, ticket: Option<&str>) -> String {
+    match ticket {
+        Some(ticket) => format!(
+            "ws://{}/ws/v1/workspaces/{workspace_id}?ticket={ticket}",
+            app.addr
+        ),
+        None => format!("ws://{}/ws/v1/workspaces/{workspace_id}", app.addr),
+    }
+}
+
+/// Opens the workspace-socket handshake with an explicit `Origin` (or none) and ticket.
+pub async fn connect_workspace_raw(
+    app: &TestApp,
+    workspace_id: &str,
+    ticket: Option<&str>,
+    origin: Option<&str>,
+) -> Result<Stream, WsError> {
+    let mut request = workspace_url(app, workspace_id, ticket).into_client_request()?;
+    if let Some(origin) = origin {
+        request
+            .headers_mut()
+            .insert("Origin", HeaderValue::from_str(origin).unwrap());
+    }
+    let (stream, _) = connect_async(request).await?;
+    Ok(stream)
+}
+
 impl WsClient {
+    /// A workspace socket with a fresh ticket of `who` (the replica is unused: the workspace
+    /// socket carries only JSON).
+    pub async fn open_workspace(app: &TestApp, who: &Account, workspace_id: &str) -> Self {
+        let ticket = ticket_for(app, who, "workspace", workspace_id).await;
+        let stream = connect_workspace_raw(app, workspace_id, Some(&ticket), Some(ALLOWED_ORIGIN))
+            .await
+            .expect("the handshake should succeed");
+        Self {
+            stream,
+            doc: Document::new(1).unwrap(),
+        }
+    }
+
+    /// The next JSON frame of type `kind`, skipping others; a close is a failure.
+    pub async fn next_event(&mut self, kind: &str) -> Value {
+        self.recv_json(kind).await
+    }
+
+    /// Whether any JSON frame arrives within `limit` (for "nothing was sent").
+    pub async fn quiet_for(&mut self, limit: Duration) -> bool {
+        self.recv_within(limit).await.is_none()
+    }
+
     /// Connects with a fresh ticket of `who`, the allowed origin and a replica with `client_id`.
     pub async fn open(app: &TestApp, who: &Account, doc_id: &str, client_id: u64) -> Self {
         let ticket = ticket_for(app, who, "doc", doc_id).await;
