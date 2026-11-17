@@ -164,7 +164,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 | 4.2 | **post-submission (FR15 is future work, ADR-012)**, dropped on 17 November | Automatic versions worker (10 min, last editor leaves) with controllable clock | Automatic version tests |
 | 4.3 | done (PR #27) | Manual save, list, preview endpoints with VERSION_SAVE audit and `VERSION_CREATED` broadcast | Integration and RBAC tests |
 | 4.4 | done (PR #25) | `replace_content` in `sync-crdt` and the restore endpoint with VERSION_RESTORE and `DOC_RESTORED` | Restore tests (crate and server) |
-| 4.5 | implemented, PR to open (Tue) (package D: with preview mode) | Web: history panel, create named version, preview mode, restore confirmation and success, viewer and empty variants, "no longer kept" (frames 18 to 24b) | Component tests; e2e scenario 6 (Thursday, when the restore endpoint has been integrated) |
+| 4.5 | done (PR #31; package D: with preview mode) | Web: history panel, create named version, preview mode, restore confirmation and success, viewer and empty variants, "no longer kept" (frames 18 to 24b) | Component tests; e2e scenario 6 (Thursday, when the restore endpoint has been integrated) |
 
 ### Phase 5: Kanban
 
