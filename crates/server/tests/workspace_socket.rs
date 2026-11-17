@@ -54,8 +54,14 @@ async fn make_task(app: &TestApp, board: &str, who: &Account, title: &str, statu
     body
 }
 
+/// Opens a workspace socket and waits until the server has counted it into the room. The client's
+/// handshake returns a moment before that, and an event published in between would be missed (a
+/// page covers the gap by loading its state again once it is connected).
 async fn open(app: &TestApp, who: &Account, workspace: &TestWorkspace<'_>) -> WsClient {
-    WsClient::open_workspace(app, who, &workspace.hex()).await
+    let before = app.hub.open_workspace_sockets();
+    let client = WsClient::open_workspace(app, who, &workspace.hex()).await;
+    wait_for(|| app.hub.open_workspace_sockets() > before).await;
+    client
 }
 
 // ----- events -----
