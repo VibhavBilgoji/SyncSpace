@@ -763,13 +763,36 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     // Broadcast capacity is 64 and the slow socket's buffers fill, so a few hundred large frames
     // make the receiver lag. All-zero payloads are valid empty updates: relayed, not growing the
     // document.
+    // This test failed on CI runners only ("the server went quiet" after the full wait), never
+    // locally, so it records what happened: how many frames the sender got out and how many the
+    // slow socket then read before the silence.
+    let mut sent = 0u32;
+    let mut send_error = None;
     for _ in 0..600u32 {
         let frame = update_frame_of(&vec![0u8; 60_000]);
-        if sender.stream.send_frame_ok(frame).await.is_err() {
-            break;
+        match sender.stream.send_frame_ok(frame).await {
+            Ok(()) => sent += 1,
+            Err(error) => {
+                send_error = Some(error.to_string());
+                break;
+            }
         }
     }
-    assert_eq!(slow.recv_close().await, Some(CLOSE_POLICY));
+    let mut received = 0u32;
+    let outcome = loop {
+        match slow.recv_within(common::ws::WAIT).await {
+            Some(Frame::Closed(code)) => break Some(code),
+            Some(_) => received += 1,
+            None => break None,
+        }
+    };
+    assert_eq!(
+        outcome,
+        Some(Some(CLOSE_POLICY)),
+        "sender sent {sent} of 600 frames (send error: {send_error:?}); the slow socket read \
+         {received} frames and then heard nothing for {:?}",
+        common::ws::WAIT
+    );
 }
 
 trait SendFrame {
