@@ -44,8 +44,26 @@ pub fn new_record(
     crdt.initialise();
     crdt.create_block(&new_block_id(), BlockType::Paragraph, 1.0, "")
         .map_err(ApiError::internal)?;
+    Ok(record_from_crdt(
+        workspace_id,
+        created_by,
+        title,
+        icon,
+        &crdt,
+    ))
+}
+
+/// A document record that holds the current state of `crdt`: its snapshot, and the block
+/// projection of it. Nothing is stored yet. [`new_record`] and the seed script build on it.
+pub fn record_from_crdt(
+    workspace_id: ObjectId,
+    created_by: ObjectId,
+    title: String,
+    icon: String,
+    crdt: &CrdtDocument,
+) -> DocumentRecord {
     let now = DateTime::now();
-    Ok(DocumentRecord {
+    DocumentRecord {
         id: ObjectId::new(),
         workspace_id,
         title,
@@ -62,7 +80,7 @@ pub fn new_record(
         created_by,
         created_at: now,
         updated_at: now,
-    })
+    }
 }
 
 /// The `DocumentSummary` of `docs/API.md` section 4.

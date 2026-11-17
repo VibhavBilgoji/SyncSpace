@@ -16,6 +16,7 @@ pub mod health;
 pub mod hub;
 pub mod metrics;
 pub mod rbac;
+pub mod seed;
 pub mod telemetry;
 pub mod typegen;
 pub mod versions;

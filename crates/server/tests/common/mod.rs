@@ -311,7 +311,6 @@ pub type Answer = (u16, serde_json::Value);
 impl TestApp {
     /// Inserts a user and signs a session for them.
     pub async fn account(&self, name: &str) -> Account {
-        use base64::Engine;
         let id = ObjectId::new();
         let email = format!("{}@example.com", uuid::Uuid::new_v4().simple());
         let user = User {
@@ -322,6 +321,12 @@ impl TestApp {
             created_at: DateTime::now(),
         };
         users::insert(&self.db, &user).await.unwrap();
+        self.session_for(id, name, &email)
+    }
+
+    /// A signed session for a user that already exists (nothing is inserted).
+    pub fn session_for(&self, id: ObjectId, name: &str, email: &str) -> Account {
+        use base64::Engine;
         let key = base64::engine::general_purpose::STANDARD
             .decode(KEY_A)
             .unwrap();
@@ -329,7 +334,7 @@ impl TestApp {
         Account {
             id,
             name: name.to_string(),
-            email,
+            email: email.to_string(),
             token,
         }
     }
