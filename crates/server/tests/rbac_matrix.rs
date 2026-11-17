@@ -23,12 +23,7 @@ use server::rbac::{Access, Role};
 
 /// Documented routes of features that later tasks build. When a task adds them to the table,
 /// it also adds a fixture, and the entry here stops mattering.
-const NOT_BUILT_YET: &[&str] = &[
-    "/workspaces/{wid}/boards",
-    "/boards/",
-    "/tasks/",
-    "/workspaces/{wid}/audit",
-];
+const NOT_BUILT_YET: &[&str] = &["/workspaces/{wid}/audit"];
 
 /// The people in one test workspace, and one spare account.
 struct Ctx {
@@ -39,6 +34,9 @@ struct Ctx {
     spare: Account,
     /// A document of the workspace, for the routes under `/documents/{id}`.
     doc_hex: String,
+    /// A board of the workspace and a task on it, for the routes under `/boards/{bid}` and `/tasks/{id}`.
+    board_hex: String,
+    task_hex: String,
 }
 
 /// What a route needs to be called successfully.
@@ -151,8 +149,51 @@ fn fixture(key: &str) -> Option<Fixture> {
             ok: 200,
             body: none,
         },
+        "GET /workspaces/{wid}/boards" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "POST /workspaces/{wid}/boards" => Fixture {
+            ok: 201,
+            body: |_| Some(json!({"name": "Matrix board"})),
+        },
+        "GET /boards/{bid}/tasks" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "POST /boards/{bid}/tasks" => Fixture {
+            ok: 201,
+            body: |_| Some(json!({"title": "Matrix task"})),
+        },
+        "PATCH /tasks/{id}" => Fixture {
+            ok: 200,
+            body: |_| Some(json!({"title": "Renamed task"})),
+        },
+        "PATCH /tasks/{id}/move" => Fixture {
+            ok: 200,
+            body: |_| Some(json!({"to_status": "DONE"})),
+        },
+        "DELETE /tasks/{id}" => Fixture {
+            ok: 204,
+            body: none,
+        },
         _ => return None,
     })
+}
+
+/// The path of a route with this case's ids. `{id}` is a task under `/tasks/` and a document elsewhere.
+fn fill(path: &str, ctx: &Ctx) -> String {
+    let id = if path.starts_with("/tasks/") {
+        &ctx.task_hex
+    } else {
+        &ctx.doc_hex
+    };
+    format!("/api/v1{path}")
+        .replace("{wid}", &ctx.workspace_hex)
+        .replace("{uid}", &ctx.target.id.to_hex())
+        .replace("{bid}", &ctx.board_hex)
+        .replace("{id}", id)
+        .replace("{n}", "1")
 }
 
 fn key(spec: &RouteSpec) -> String {
@@ -226,11 +267,38 @@ async fn workspace_for_a_case(app: &TestApp) -> (TestWorkspace<'_>, Ctx) {
     )
     .await
     .unwrap();
+    // A board with one task, for the routes under `/boards/{bid}` and `/tasks/{id}`.
+    let board = server::db::boards::BoardRecord {
+        id: mongodb::bson::oid::ObjectId::new(),
+        workspace_id: workspace.id,
+        name: "Matrix board".to_string(),
+        created_by: workspace.owner.id,
+        created_at: mongodb::bson::DateTime::now(),
+    };
+    server::db::boards::insert(&app.db, &board).await.unwrap();
+    let task = server::db::tasks::TaskRecord {
+        id: mongodb::bson::oid::ObjectId::new(),
+        workspace_id: workspace.id,
+        board_id: board.id,
+        title: "Matrix task".to_string(),
+        description: String::new(),
+        status: "TODO".to_string(),
+        priority: "MEDIUM".to_string(),
+        assignee_ids: vec![],
+        tags: vec![],
+        order: 1.0,
+        created_by: workspace.owner.id,
+        created_at: mongodb::bson::DateTime::now(),
+        updated_at: mongodb::bson::DateTime::now(),
+    };
+    server::db::tasks::insert(&app.db, &task).await.unwrap();
     let ctx = Ctx {
         workspace_hex: workspace.hex(),
         target,
         spare,
         doc_hex: record.id.to_hex(),
+        board_hex: board.id.to_hex(),
+        task_hex: task.id.to_hex(),
     };
     (workspace, ctx)
 }
@@ -264,11 +332,7 @@ async fn every_route_gives_every_kind_of_caller_the_documented_status() {
             let (workspace, ctx) = workspace_for_a_case(&app).await;
             let outsider = app.account("Outsider").await;
             let account = caller_account(caller, &workspace, &outsider);
-            let path = format!("/api/v1{}", spec.path)
-                .replace("{wid}", &ctx.workspace_hex)
-                .replace("{uid}", &ctx.target.id.to_hex())
-                .replace("{id}", &ctx.doc_hex)
-                .replace("{n}", "1");
+            let path = fill(spec.path, &ctx);
 
             let (status, body) = app
                 .call(spec.method, &path, account, (fixture.body)(&ctx))
@@ -310,11 +374,7 @@ async fn a_refused_call_changes_nothing() {
             let (workspace, ctx) = workspace_for_a_case(&app).await;
             let outsider = app.account("Outsider").await;
             let before = workspace.stored().await;
-            let path = format!("/api/v1{}", spec.path)
-                .replace("{wid}", &ctx.workspace_hex)
-                .replace("{uid}", &ctx.target.id.to_hex())
-                .replace("{id}", &ctx.doc_hex)
-                .replace("{n}", "1");
+            let path = fill(spec.path, &ctx);
             let (status, _) = app
                 .call(
                     spec.method,
@@ -360,6 +420,13 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "POST /documents/{id}/versions",
         "GET /documents/{id}/versions/{n}",
         "POST /documents/{id}/versions/{n}/restore",
+        "GET /workspaces/{wid}/boards",
+        "POST /workspaces/{wid}/boards",
+        "GET /boards/{bid}/tasks",
+        "POST /boards/{bid}/tasks",
+        "PATCH /tasks/{id}",
+        "PATCH /tasks/{id}/move",
+        "DELETE /tasks/{id}",
     ];
     let with_fixture: BTreeSet<String> = probes
         .iter()

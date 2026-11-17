@@ -23,7 +23,7 @@ use server::workspaces::handlers::{MemberResponse, SummaryResponse, WorkspaceRes
 
 /// The request bodies are documented next to their endpoints in `API.md` section 2, not in the
 /// "Shared types" block of section 4.
-const REQUEST_TYPES: [&str; 10] = [
+const REQUEST_TYPES: [&str; 14] = [
     "AddMemberRequest",
     "ChangeRoleRequest",
     "CreateDocumentRequest",
@@ -34,6 +34,10 @@ const REQUEST_TYPES: [&str; 10] = [
     "UpdateWorkspaceRequest",
     "WsTicketRequest",
     "SaveVersionRequest",
+    "CreateBoardRequest",
+    "CreateTaskRequest",
+    "UpdateTaskRequest",
+    "MoveTaskRequest",
 ];
 
 fn temp_dir() -> PathBuf {

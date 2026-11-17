@@ -198,6 +198,36 @@ pub fn api_route_table() -> Vec<RouteSpec> {
             Access::Member(Viewer),
             || get(crate::versions::handlers::get_version),
         ),
+        RouteSpec::new(
+            "GET",
+            "/workspaces/{wid}/boards",
+            Access::Member(Viewer),
+            || get(crate::boards::handlers::list_boards),
+        ),
+        RouteSpec::new(
+            "POST",
+            "/workspaces/{wid}/boards",
+            Access::Member(Editor),
+            || post(crate::boards::handlers::create_board),
+        ),
+        RouteSpec::new("GET", "/boards/{bid}/tasks", Access::Member(Viewer), || {
+            get(crate::boards::handlers::list_tasks)
+        }),
+        RouteSpec::new(
+            "POST",
+            "/boards/{bid}/tasks",
+            Access::Member(Editor),
+            || post(crate::boards::handlers::create_task),
+        ),
+        RouteSpec::new("PATCH", "/tasks/{id}", Access::Member(Editor), || {
+            patch(crate::boards::handlers::patch_task)
+        }),
+        RouteSpec::new("PATCH", "/tasks/{id}/move", Access::Member(Editor), || {
+            patch(crate::boards::handlers::move_task)
+        }),
+        RouteSpec::new("DELETE", "/tasks/{id}", Access::Member(Editor), || {
+            delete(crate::boards::handlers::delete_task)
+        }),
     ]
 }
 

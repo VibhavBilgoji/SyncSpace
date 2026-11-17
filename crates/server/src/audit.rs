@@ -15,7 +15,7 @@ use crate::rbac::Role;
 pub const COLLECTION: &str = "audit_logs";
 
 /// What happened. Variants are added as the features that cause them arrive.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AuditEvent {
     /// A user was added to the workspace with `role`.
     MemberAdd { user_id: ObjectId, role: Role },
@@ -49,6 +49,22 @@ pub enum AuditEvent {
         restored_from: i32,
         version_number: i32,
     },
+    /// A task was created.
+    TaskCreate {
+        task_id: ObjectId,
+        title: String,
+        status: String,
+        priority: String,
+    },
+    /// A task moved to a column and position (`order` is the one the server computed).
+    TaskMove {
+        task_id: ObjectId,
+        from_column: String,
+        to_column: String,
+        order: f64,
+    },
+    /// A task was deleted; its title is kept because the task is gone.
+    TaskDelete { task_id: ObjectId, title: String },
 }
 
 impl AuditEvent {
@@ -61,6 +77,9 @@ impl AuditEvent {
             Self::DocDelete { .. } => "DOC_DELETE",
             Self::VersionSave { .. } => "VERSION_SAVE",
             Self::VersionRestore { .. } => "VERSION_RESTORE",
+            Self::TaskCreate { .. } => "TASK_CREATE",
+            Self::TaskMove { .. } => "TASK_MOVE",
+            Self::TaskDelete { .. } => "TASK_DELETE",
         }
     }
 
@@ -72,6 +91,7 @@ impl AuditEvent {
             | Self::DocDelete { .. }
             | Self::VersionSave { .. }
             | Self::VersionRestore { .. } => "DOCUMENT",
+            Self::TaskCreate { .. } | Self::TaskMove { .. } | Self::TaskDelete { .. } => "TASK",
         }
     }
 
@@ -85,6 +105,9 @@ impl AuditEvent {
             | Self::DocDelete { document_id, .. }
             | Self::VersionSave { document_id, .. }
             | Self::VersionRestore { document_id, .. } => document_id.to_hex(),
+            Self::TaskCreate { task_id, .. }
+            | Self::TaskMove { task_id, .. }
+            | Self::TaskDelete { task_id, .. } => task_id.to_hex(),
         }
     }
 
@@ -113,6 +136,23 @@ impl AuditEvent {
                 version_number,
                 ..
             } => doc! { "restored_from": *restored_from, "version_number": *version_number },
+            Self::TaskCreate {
+                title,
+                status,
+                priority,
+                ..
+            } => doc! { "title": title, "status": status, "priority": priority },
+            Self::TaskMove {
+                from_column,
+                to_column,
+                order,
+                ..
+            } => doc! {
+                "from_column": from_column,
+                "to_column": to_column,
+                "calculated_order": *order,
+            },
+            Self::TaskDelete { title, .. } => doc! { "title": title },
         }
     }
 
@@ -234,6 +274,49 @@ mod tests {
                 row.get_document("metadata").unwrap(),
                 &doc! { "title": "Plan" }
             );
+        }
+    }
+
+    #[test]
+    fn task_events_follow_the_documented_mapping() {
+        let (workspace, actor, task) = ids();
+        let created = AuditEvent::TaskCreate {
+            task_id: task,
+            title: "Ship".into(),
+            status: "TODO".into(),
+            priority: "HIGH".into(),
+        }
+        .to_row(workspace, actor);
+        assert_eq!(created.get_str("action").unwrap(), "TASK_CREATE");
+        assert_eq!(
+            created.get_document("metadata").unwrap(),
+            &doc! { "title": "Ship", "status": "TODO", "priority": "HIGH" }
+        );
+        let moved = AuditEvent::TaskMove {
+            task_id: task,
+            from_column: "TODO".into(),
+            to_column: "DONE".into(),
+            order: 2.5,
+        }
+        .to_row(workspace, actor);
+        assert_eq!(moved.get_str("action").unwrap(), "TASK_MOVE");
+        assert_eq!(
+            moved.get_document("metadata").unwrap(),
+            &doc! { "from_column": "TODO", "to_column": "DONE", "calculated_order": 2.5 }
+        );
+        let deleted = AuditEvent::TaskDelete {
+            task_id: task,
+            title: "Ship".into(),
+        }
+        .to_row(workspace, actor);
+        assert_eq!(deleted.get_str("action").unwrap(), "TASK_DELETE");
+        assert_eq!(
+            deleted.get_document("metadata").unwrap(),
+            &doc! { "title": "Ship" }
+        );
+        for row in [&created, &moved, &deleted] {
+            assert_eq!(row.get_str("entity_type").unwrap(), "TASK");
+            assert_eq!(row.get_str("entity_id").unwrap(), task.to_hex());
         }
     }
 

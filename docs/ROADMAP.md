@@ -170,7 +170,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 5.1 | MUST, package D (next) | Boards and tasks REST, move ordering and renumbering, member checks, TASK_CREATE, TASK_MOVE, TASK_DELETE audit, `BOARD_EVENT` | Task tests in `TESTING.md` |
+| 5.1 | implemented, PR to open (Tue) | Boards and tasks REST, move ordering and renumbering, member checks, TASK_CREATE, TASK_MOVE, TASK_DELETE audit, `BOARD_EVENT` | Task tests in `TESTING.md` |
 | 5.2 | MUST, package D: no filters | Web: board page, columns, task card states, create board, empty board (frames 25 to 27b). **Trimmed:** filters are post-submission | Component tests |
 | 5.3 | MUST, package D: status dropdown or arrow buttons, **no drag and drop** (that is only at the very end) | Web: create task, details and edit, delete, move between columns with a status dropdown or arrow buttons (keyboard accessible), viewer board (frames 28 to 32). **Trimmed:** drag and drop is post-submission unless time is left at the very end | e2e scenario 7 (moving a task with the status control) |
 
