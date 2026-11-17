@@ -72,6 +72,65 @@ pub fn is_empty_update(update: &[u8]) -> bool {
     update == Update::default().encode_v1().as_slice()
 }
 
+/// One replica's presence, as carried by an awareness frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AwarenessEntry {
+    pub client_id: u64,
+    pub clock: u32,
+    /// The JSON state, or `None` when the replica left (the state is `null`).
+    pub state: Option<String>,
+}
+
+/// The longest awareness state accepted, in bytes (a name, a colour and little else).
+pub const MAX_AWARENESS_BYTES: usize = 1024;
+
+/// An awareness frame announcing `json` as the state of replica `client_id`. Pass `"null"` to
+/// announce that the replica left. `json` must be valid JSON of at most 1 KiB.
+pub fn awareness_frame(client_id: u64, clock: u32, json: &str) -> Result<Vec<u8>, CrdtError> {
+    use yrs::block::ClientID;
+    use yrs::sync::awareness::{AwarenessUpdate, AwarenessUpdateEntry};
+    if client_id == 0 || client_id >= 1 << 53 {
+        return Err(CrdtError::InvalidClientId);
+    }
+    if json.len() > MAX_AWARENESS_BYTES || serde_json::from_str::<serde_json::Value>(json).is_err()
+    {
+        return Err(CrdtError::Decode);
+    }
+    let mut clients = std::collections::HashMap::new();
+    clients.insert(
+        ClientID::new(client_id),
+        AwarenessUpdateEntry {
+            clock,
+            json: json.into(),
+        },
+    );
+    Ok(Message::Awareness(AwarenessUpdate { clients }).encode_v1())
+}
+
+/// The entries of an awareness frame. Anything else, or states over the limit, is an error.
+pub fn awareness_entries(frame: &[u8]) -> Result<Vec<AwarenessEntry>, CrdtError> {
+    if frame.len() > MAX_FRAME_BYTES {
+        return Err(CrdtError::TooLarge(frame.len()));
+    }
+    let Message::Awareness(update) = decode_message(frame)? else {
+        return Err(CrdtError::Decode);
+    };
+    update
+        .clients
+        .into_iter()
+        .map(|(id, entry)| {
+            if entry.json.len() > MAX_AWARENESS_BYTES {
+                return Err(CrdtError::Decode);
+            }
+            Ok(AwarenessEntry {
+                client_id: id.get(),
+                clock: entry.clock,
+                state: (entry.json.as_ref() != "null").then(|| entry.json.to_string()),
+            })
+        })
+        .collect()
+}
+
 /// Wraps an update in an Update frame.
 pub fn update_frame(update: &[u8]) -> Vec<u8> {
     Message::Sync(SyncMessage::Update(update.to_vec())).encode_v1()

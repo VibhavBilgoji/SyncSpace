@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import init, { WasmDocument, orderBetween, updateFrame } from "@/wasm/pkg/sync_crdt";
+import { useSession } from "@/lib/session";
+import init, {
+  WasmDocument,
+  awarenessFrame,
+  decodeAwareness,
+  orderBetween,
+  updateFrame,
+} from "@/wasm/pkg/sync_crdt";
 import type { Block, BlockType, ServerFrame } from "@/types/generated";
 
 export type SessionStatus =
@@ -19,6 +26,8 @@ export interface DocumentSession {
   status: SessionStatus;
   blocks: Block[];
   activeSockets: number;
+  /** Names of the other people with this document open (awareness; no cursors). */
+  peers: string[];
   /** Last snapshot the server reported: `rev_N · Saved to MongoDB`. */
   saved: { revision: number; savedAt: string } | null;
   /** The code of the last `ERROR` frame, for example READ_ONLY. */
@@ -51,6 +60,9 @@ export function randomBlockId(): string {
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080";
 const RETRY_MS = [500, 1000, 2000, 4000];
+/** Presence is announced this often, and a peer not heard from for three times as long is gone. */
+const PRESENCE_MS = 10_000;
+const AWARENESS_TAG = 1; // the y-sync message type of an awareness frame
 
 function readBlocks(doc: WasmDocument): Block[] {
   return JSON.parse(doc.blocksJson()) as Block[];
@@ -69,6 +81,13 @@ export function useDocumentSession(docId: string): DocumentSession {
   const [activeSockets, setActiveSockets] = useState(0);
   const [saved, setSaved] = useState<DocumentSession["saved"]>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [peers, setPeers] = useState<string[]>([]);
+  const { session } = useSession();
+  const myName = session.status === "authed" ? session.user.name : "Someone";
+  const nameRef = useRef(myName);
+  useEffect(() => {
+    nameRef.current = myName;
+  }, [myName]);
   const docRef = useRef<WasmDocument | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -77,6 +96,25 @@ export function useDocumentSession(docId: string): DocumentSession {
     let attempt = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let doc: WasmDocument | null = null;
+    let clientId = 0;
+    let clock = 0;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const seen = new Map<number, { name: string; at: number }>();
+
+    const publishPeers = () => {
+      const cutoff = Date.now() - PRESENCE_MS * 3;
+      for (const [id, peer] of seen) if (peer.at < cutoff) seen.delete(id);
+      setPeers([...seen.values()].map((p) => p.name).sort());
+    };
+    const announce = (ws: WebSocket, state: string) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      try {
+        clock += 1;
+        ws.send(awarenessFrame(clientId, clock, state));
+      } catch {
+        // Presence is best effort: a refused frame must never break editing.
+      }
+    };
 
     const endOf = (code: number): SessionStatus | null =>
       code === 4004 ? "gone" : code === 4003 ? "forbidden" : code === 4001 ? "unauthorized" : null;
@@ -107,6 +145,13 @@ export function useDocumentSession(docId: string): DocumentSession {
         attempt = 0;
         setStatus("live");
         if (doc) ws.send(doc.syncStep1Frame());
+        const hello = () => announce(ws, JSON.stringify({ name: nameRef.current }));
+        hello();
+        clearInterval(heartbeat);
+        heartbeat = setInterval(() => {
+          hello();
+          publishPeers();
+        }, PRESENCE_MS);
       };
       ws.onmessage = (event: MessageEvent) => {
         if (!doc) return;
@@ -118,8 +163,30 @@ export function useDocumentSession(docId: string): DocumentSession {
           else if (frame.type === "ERROR") setNotice(frame.code);
           return;
         }
+        const bytes = new Uint8Array(event.data as ArrayBuffer);
+        if (bytes[0] === AWARENESS_TAG) {
+          try {
+            const entries = JSON.parse(decodeAwareness(bytes)) as Array<{
+              client_id: number;
+              state: { name?: unknown } | null;
+            }>;
+            for (const entry of entries) {
+              if (entry.client_id === clientId) continue;
+              const name = entry.state?.name;
+              if (typeof name === "string" && name !== "") {
+                seen.set(entry.client_id, { name: name.slice(0, 80), at: Date.now() });
+              } else {
+                seen.delete(entry.client_id);
+              }
+            }
+            publishPeers();
+          } catch {
+            // A bad presence frame is ignored; it carries no document data.
+          }
+          return;
+        }
         try {
-          const reply = doc.handleMessage(new Uint8Array(event.data as ArrayBuffer));
+          const reply = doc.handleMessage(bytes);
           if (reply.length > 0) ws.send(reply);
           setBlocks(readBlocks(doc));
         } catch (error) {
@@ -129,6 +196,9 @@ export function useDocumentSession(docId: string): DocumentSession {
         }
       };
       ws.onclose = (event: CloseEvent) => {
+        clearInterval(heartbeat);
+        seen.clear();
+        setPeers([]);
         if (cancelled) return;
         const end = endOf(event.code);
         if (end) setStatus(end);
@@ -139,7 +209,8 @@ export function useDocumentSession(docId: string): DocumentSession {
     init()
       .then(() => {
         if (cancelled) return;
-        doc = new WasmDocument(randomClientId());
+        clientId = randomClientId();
+        doc = new WasmDocument(clientId);
         docRef.current = doc;
         void connect();
       })
@@ -148,6 +219,8 @@ export function useDocumentSession(docId: string): DocumentSession {
     return () => {
       cancelled = true;
       clearTimeout(retry);
+      clearInterval(heartbeat);
+      if (wsRef.current) announce(wsRef.current, "null");
       wsRef.current?.close();
       wsRef.current = null;
       docRef.current = null;
@@ -215,6 +288,7 @@ export function useDocumentSession(docId: string): DocumentSession {
     status,
     blocks,
     activeSockets,
+    peers,
     saved,
     notice,
     insertText,

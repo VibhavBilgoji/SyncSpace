@@ -8,7 +8,9 @@
 use wasm_bindgen::prelude::*;
 
 use crate::parity::{block_doc_from_fixture, doc_from_fixture};
-use crate::{BlockType, Document, SpikeDoc, order_between, update_frame};
+use crate::{
+    BlockType, Document, SpikeDoc, awareness_entries, awareness_frame, order_between, update_frame,
+};
 
 /// A client id from JavaScript: an integer below 2^53. The range check also rejects NaN and
 /// infinities.
@@ -206,6 +208,29 @@ impl WasmDocument {
 #[wasm_bindgen(js_name = orderBetween)]
 pub fn order_between_js(before: Option<f64>, after: Option<f64>) -> Result<f64, JsError> {
     Ok(order_between(before, after)?)
+}
+
+/// An awareness frame announcing `json` as the state of this replica (`"null"` = left). Throws on
+/// invalid JSON, a state over 1 KiB or a bad client id.
+#[wasm_bindgen(js_name = awarenessFrame)]
+pub fn awareness_frame_js(client_id: f64, clock: u32, json: &str) -> Result<Vec<u8>, JsError> {
+    Ok(awareness_frame(parse_client_id(client_id)?, clock, json)?)
+}
+
+/// The entries of an awareness frame as JSON: `[{"client_id":1,"clock":2,"state":{...}|null}]`.
+#[wasm_bindgen(js_name = decodeAwareness)]
+pub fn decode_awareness_js(frame: &[u8]) -> Result<String, JsError> {
+    let entries = awareness_entries(frame)?;
+    let list: Vec<serde_json::Value> = entries
+        .into_iter()
+        .map(|e| {
+            let state = e
+                .state
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+            serde_json::json!({"client_id": e.client_id, "clock": e.clock, "state": state})
+        })
+        .collect();
+    Ok(serde_json::Value::Array(list).to_string())
 }
 
 /// Wraps an update in an Update frame, ready to send over the document socket.

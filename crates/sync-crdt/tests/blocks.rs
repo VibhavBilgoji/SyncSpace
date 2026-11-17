@@ -11,8 +11,8 @@ use proptest::test_runner::RngSeed;
 use serde_json::json;
 use sync_crdt::schema::{MAX_BLOCK_TEXT_UNITS, MAX_BLOCKS};
 use sync_crdt::{
-    Block, BlockType, CrdtError, Document, FrameKind, MAX_UPDATE_BYTES, check_state_vector,
-    frame_kind, is_empty_update, order_between, update_frame,
+    Block, BlockType, CrdtError, Document, FrameKind, MAX_UPDATE_BYTES, awareness_entries,
+    awareness_frame, check_state_vector, frame_kind, is_empty_update, order_between, update_frame,
 };
 use yrs::block::ClientID;
 use yrs::sync::awareness::AwarenessUpdate;
@@ -1401,5 +1401,36 @@ fn restoring_leaves_the_document_alone_until_the_update_is_applied() {
     assert!(
         live.restore_update(&target, 1 << 53).is_err(),
         "a bad scratch client id is an error"
+    );
+}
+
+#[test]
+fn an_awareness_frame_round_trips_and_is_classified() {
+    let frame = awareness_frame(77, 3, r##"{"name":"Ada","color":"#6366f1"}"##).unwrap();
+    assert_eq!(frame_kind(&frame), Ok(FrameKind::Awareness));
+    let entries = awareness_entries(&frame).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].client_id, 77);
+    assert_eq!(entries[0].clock, 3);
+    assert_eq!(
+        entries[0].state.as_deref(),
+        Some(r##"{"name":"Ada","color":"#6366f1"}"##)
+    );
+    let left = awareness_entries(&awareness_frame(77, 4, "null").unwrap()).unwrap();
+    assert_eq!(left[0].state, None);
+}
+
+#[test]
+fn awareness_frames_reject_bad_input() {
+    assert!(awareness_frame(0, 1, "{}").is_err());
+    assert!(awareness_frame(1 << 53, 1, "{}").is_err());
+    assert!(awareness_frame(5, 1, "not json").is_err());
+    assert!(awareness_frame(5, 1, &format!("\"{}\"", "x".repeat(2000))).is_err());
+    assert!(awareness_entries(&[]).is_err());
+    assert!(awareness_entries(&[0xFF; 40]).is_err());
+    let update = update_frame(&doc(2).encode_state_as_update());
+    assert!(
+        awareness_entries(&update).is_err(),
+        "not an awareness frame"
     );
 }
