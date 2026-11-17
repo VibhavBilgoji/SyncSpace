@@ -771,7 +771,16 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     for _ in 0..600u32 {
         let frame = update_frame_of(&vec![0u8; 60_000]);
         match sender.stream.send_frame_ok(frame).await {
-            Ok(()) => sent += 1,
+            Ok(()) => {
+                sent += 1;
+                // Paced: the connection also queues an echo of every update it sends and is closed
+                // as "too slow" when it falls 64 behind on its own (the failure this test showed on
+                // CI). A short pause every ten frames lets the server drain its side; the slow socket still falls
+                // behind, because it is not reading at all.
+                if sent.is_multiple_of(10) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
             Err(error) => {
                 send_error = Some(error.to_string());
                 break;
