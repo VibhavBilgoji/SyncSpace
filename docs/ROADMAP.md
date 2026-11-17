@@ -87,7 +87,7 @@ The day boundaries also move, because a day cannot hold 20 hours: the editor (2.
 
 In package C, 6.1 (the audit endpoint, 1.5 h) is still built and tested, because the audit rows already written by 1.3 need a way to be read; it is the first item to drop if Thursday runs late.
 
-Nothing in section 5 is applied until you choose a package; the day plan above is what I will follow once you do.
+**Decision (Tuesday 17 November, evening): package D, no further cuts.** The work is ahead of the plan (2.1 to 2.6, FR11, 7.4 hardening, 3.1 and 4.1 to 4.4 are merged), so none of K1 to K6 is applied beyond what was already built (K1 and the simple live role change). Kanban, the members and audit screens, the versions preview mode and the seed stay in. The first deploy moves up to today.
 
 ## 6. Cuts and trims already applied
 
@@ -139,20 +139,20 @@ The deliverable and acceptance text is the original, except where it asks for te
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 2.1 | implemented, PR to open (Tue) | `sync-crdt`: schema, ops, projection, validation, sync wrappers, Wasm bindings | Convergence property test, projection, move, validation fuzz, parity |
-| 2.2 | MUST, Tue | Documents REST (list, create, get, rename, delete) with DOC_CREATE and DOC_DELETE audit | Integration and RBAC tests |
-| 2.3 | MUST, Tue | WebSocket hub: tickets, doc rooms, handshake, broadcast, frame role checks, rate limits, size limit, close codes | Ticket and frame tests; two clients converge; late joiner |
-| 2.4 | MUST, Tue | Snapshot worker, final flush, SIGTERM flush, `SNAPSHOT_SAVED`, metrics counters | Snapshot and restart durability tests |
-| 2.5 | MUST, Tue | Web: documents list, empty state, create dialog (frames 06 to 08) | Component tests (the e2e create-document is covered by scenario 1) |
-| 2.6 | MUST, Wed (spills over from Tuesday) | Web: block editor with the six block types, minimal-diff input, slash menu, hover and focus states, code copy, checklist toggle (frames 09 to 11), and the socket client | Editor logic tests; e2e scenario 1 |
+| 2.1 | done (PR #14) | `sync-crdt`: schema, ops, projection, validation, sync wrappers, Wasm bindings | Convergence property test, projection, move, validation fuzz, parity |
+| 2.2 | done | Documents REST (list, create, get, rename, delete) with DOC_CREATE and DOC_DELETE audit | Integration and RBAC tests |
+| 2.3 | done | WebSocket hub: tickets, doc rooms, handshake, broadcast, frame role checks, rate limits, size limit, close codes | Ticket and frame tests; two clients converge; late joiner |
+| 2.4 | done | Snapshot worker, final flush, SIGTERM flush, `SNAPSHOT_SAVED`, metrics counters | Snapshot and restart durability tests |
+| 2.5 | done | Web: documents list, empty state, create dialog (frames 06 to 08) | Component tests (the e2e create-document is covered by scenario 1) |
+| 2.6 | done | Web: block editor with the six block types, minimal-diff input, slash menu, hover and focus states, code copy, checklist toggle (frames 09 to 11), and the socket client | Editor logic tests; e2e scenario 1 |
 
 ### Phase 3: collaboration details
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 3.1 | MUST, Wed (K1: avatars and count only) | Awareness: presence avatars, remote cursors and selections with sticky indices, `PRESENCE_COUNT` | e2e scenario 2 |
-| 3.2 | MUST, Wed | Reconnect with backoff and ticket refresh; reconnecting banner and pill. **Trimmed:** no "Waiting to sync" state (frame 13) | Socket client tests (e2e scenario 5 is post-submission) |
-| 3.3 | cut in packages B and C (K3); otherwise Thu | Live role changes and removal; viewer mode. **Trimmed:** a demoted or removed user stops editing at once; toasts and frame 42 are post-submission | Frame tests; e2e scenario 3 (scenario 4 is post-submission; the server test "a demoted editor's next update is rejected" covers its logic) |
+| 3.1 | done (PR #23; avatars and count only, K1) | Awareness: presence avatars, remote cursors and selections with sticky indices, `PRESENCE_COUNT` | e2e scenario 2 |
+| 3.2 | implemented, PR to open (Tue) | Reconnect with backoff and ticket refresh; reconnecting banner and pill. **Trimmed:** no "Waiting to sync" state (frame 13) | Socket client tests (e2e scenario 5 is post-submission) |
+| 3.3 | done (PR #20, ADR-014; the simple version) | Live role changes and removal; viewer mode. **Trimmed:** a demoted or removed user stops editing at once; toasts and frame 42 are post-submission | Frame tests; e2e scenario 3 (scenario 4 is post-submission; the server test "a demoted editor's next update is rejected" covers its logic) |
 | 3.4 | SHOULD | Session expiry: on close code 4001 redirect to login (the full flow keeping unsynced edits, frame 41, is post-submission) | Socket client test for 4001 |
 | 3.5 | SHOULD | Share dialog (15), delete dialog (16), command palette (17), workspace socket with `DOC_LIST_EVENT` and `MEMBER_EVENT` | Component tests (e2e scenario 9 is post-submission) |
 
@@ -160,11 +160,11 @@ The deliverable and acceptance text is the original, except where it asks for te
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 4.1 | MUST, Thu | `document_versions` repository, zstd compression, version counter, retention | Numbering under concurrency, retention tests |
+| 4.1 | done (PR #22) | `document_versions` repository, zstd compression, version counter, retention | Numbering under concurrency, retention tests |
 | 4.2 | **post-submission (FR15 is future work, ADR-012)**, dropped on 17 November | Automatic versions worker (10 min, last editor leaves) with controllable clock | Automatic version tests |
-| 4.3 | MUST, Thu (K2: no preview) | Manual save, list, preview endpoints with VERSION_SAVE audit and `VERSION_CREATED` broadcast | Integration and RBAC tests |
-| 4.4 | MUST, Thu | `replace_content` in `sync-crdt` and the restore endpoint with VERSION_RESTORE and `DOC_RESTORED` | Restore tests (crate and server) |
-| 4.5 | MUST, Thu (K2: no preview mode) | Web: history panel, create named version, preview mode, restore confirmation and success, viewer and empty variants, "no longer kept" (frames 18 to 24b) | Component tests; e2e scenario 6 (Thursday, when the restore endpoint has been integrated) |
+| 4.3 | done (PR #27) | Manual save, list, preview endpoints with VERSION_SAVE audit and `VERSION_CREATED` broadcast | Integration and RBAC tests |
+| 4.4 | done (PR #25) | `replace_content` in `sync-crdt` and the restore endpoint with VERSION_RESTORE and `DOC_RESTORED` | Restore tests (crate and server) |
+| 4.5 | MUST, next (package D: with preview mode) | Web: history panel, create named version, preview mode, restore confirmation and success, viewer and empty variants, "no longer kept" (frames 18 to 24b) | Component tests; e2e scenario 6 (Thursday, when the restore endpoint has been integrated) |
 
 ### Phase 5: Kanban
 
@@ -189,7 +189,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 | 7.1 | post-submission | Full RBAC matrix and frame test sweep; fix gaps reported by `test-writer` | Coverage gates in `TESTING.md` §3 met |
 | 7.2 | SHOULD | Load test tool and results (a 60-second run) | Numbers recorded in `PROGRESS.md`; targets met or explained |
 | 7.3 | post-submission | Accessibility pass | e2e scenario 10 |
-| 7.4 | MUST, Wed (first deploy), redeploy Thu | Dockerfile (multi-stage, distroless or debian-slim), deploy workflows, Render, Vercel and Atlas setup per `DEPLOYMENT.md` | Smoke test checklist in `DEPLOYMENT.md` §8 passes on the hosted URLs |
+| 7.4 | MUST, Tue evening (first deploy, moved up), redeploy Thu; hardening done (PR #21) | Dockerfile (multi-stage, distroless or debian-slim), deploy workflows, Render, Vercel and Atlas setup per `DEPLOYMENT.md` | Smoke test checklist in `DEPLOYMENT.md` §8 passes on the hosted URLs |
 | 7.5 | MUST, Thu | Seed script for the demo (workspace "Engineering Team", three members, documents and a board like the Figma frames) | Runs against a fresh database |
 
 ### Phase 8 (optional): several nodes with Redis (post-submission)

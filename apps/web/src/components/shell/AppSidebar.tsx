@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { NavItem } from "@/components/ui/NavItem";
+import { useConnectionState } from "@/lib/connection";
 import { useSession } from "@/lib/session";
 import { ConnectionPill } from "./ConnectionPill";
 import { useWorkspace } from "./WorkspaceShell";
@@ -19,6 +20,7 @@ export function AppSidebar() {
   const { session, signOut } = useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const connection = useConnectionState();
   const base = `/w/${workspace.slug}`;
   const isAdmin = workspace.role === "ADMIN";
 
@@ -74,7 +76,7 @@ export function AppSidebar() {
       </nav>
 
       <div className="flex flex-col gap-3">
-        <ConnectionPill />
+        <ConnectionPill state={connection} />
         {session.status === "authed" && (
           <div className="flex items-center gap-2">
             <Avatar name={session.user.name} size="sm" />

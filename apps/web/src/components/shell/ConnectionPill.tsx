@@ -1,20 +1,22 @@
 import { cn } from "@/lib/cn";
 
-export type ConnectionState = "connected" | "reconnecting" | "connecting";
+export type ConnectionState = "connected" | "reconnecting" | "connecting" | "disconnected";
 
 const label: Record<ConnectionState, string> = {
   connected: "Connected (WebSocket)",
   reconnecting: "Reconnecting...",
   connecting: "Connecting...",
+  disconnected: "Disconnected",
 };
 
 const dot: Record<ConnectionState, string> = {
   connected: "bg-success",
   reconnecting: "bg-warning",
   connecting: "bg-text-faint",
+  disconnected: "bg-danger",
 };
 
-/** Placeholder until the socket client exists (tasks 2.6 and 3.2); defaults to "connecting". */
+/** The state of the open document socket (`useConnectionState`); "connecting" when none is open. */
 export function ConnectionPill({
   state = "connecting",
   latencyMs,

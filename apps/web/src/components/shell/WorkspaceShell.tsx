@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
+import { ConnectionProvider } from "@/lib/connection";
 import { RequireAuth } from "@/lib/session";
 import type { WorkspaceSummary } from "@/types/generated";
 import { AppHeader } from "./AppHeader";
@@ -103,13 +104,15 @@ function ShellInner({ children, title }: { children: ReactNode; title?: string }
 
   return (
     <WorkspaceContext.Provider value={state.workspace}>
-      <div className="flex min-h-screen">
-        <AppSidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <AppHeader section={title} />
-          <div className="flex-1 p-8">{children}</div>
+      <ConnectionProvider>
+        <div className="flex min-h-screen">
+          <AppSidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <AppHeader section={title} />
+            <div className="flex-1 p-8">{children}</div>
+          </div>
         </div>
-      </div>
+      </ConnectionProvider>
     </WorkspaceContext.Provider>
   );
 }
