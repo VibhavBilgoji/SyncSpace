@@ -170,17 +170,17 @@ The deliverable and acceptance text is the original, except where it asks for te
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 5.1 | implemented, PR to open (Tue) | Boards and tasks REST, move ordering and renumbering, member checks, TASK_CREATE, TASK_MOVE, TASK_DELETE audit, `BOARD_EVENT` | Task tests in `TESTING.md` |
-| 5.2 | implemented, PR to open (Tue); package D: no filters | Web: board page, columns, task card states, create board, empty board (frames 25 to 27b). **Trimmed:** filters are post-submission | Component tests |
-| 5.3 | implemented, PR to open (Tue); package D: arrow buttons and status dropdown, **no drag and drop** (only at the very end) | Web: create task, details and edit, delete, move between columns with a status dropdown or arrow buttons (keyboard accessible), viewer board (frames 28 to 32). **Trimmed:** drag and drop is post-submission unless time is left at the very end | e2e scenario 7 (moving a task with the status control) |
+| 5.1 | done (PR #36) | Boards and tasks REST, move ordering and renumbering, member checks, TASK_CREATE, TASK_MOVE, TASK_DELETE audit, `BOARD_EVENT` | Task tests in `TESTING.md` |
+| 5.2 | done (PR #36); package D: no filters | Web: board page, columns, task card states, create board, empty board (frames 25 to 27b). **Trimmed:** filters are post-submission | Component tests |
+| 5.3 | done (PR #36); package D: arrow buttons and status dropdown, **no drag and drop** (only at the very end) | Web: create task, details and edit, delete, move between columns with a status dropdown or arrow buttons (keyboard accessible), viewer board (frames 28 to 32). **Trimmed:** drag and drop is post-submission unless time is left at the very end | e2e scenario 7 (moving a task with the status control) |
 
 ### Phase 6: settings and audit
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 6.1 | implemented, PR to open (Tue) | Audit list endpoint with filters and cursor | Audit tests |
-| 6.2 | implemented, PR to open (Tue); package D | Web: members and access, add member, change role, remove member (frames 34 to 37). **Trimmed:** general settings and the danger zone (frames 33, 38) are post-submission | Component tests (e2e scenario 8 is post-submission; its logic is covered by the member and audit server tests) |
-| 6.3 | implemented, PR to open (Tue); package D: a plain table with an action filter only | Web: audit trail as a plain table with an action filter (frame 39). **Trimmed:** the actor and entity-type filters, the JSON inspector and the CSV and JSON export (frame 40) are post-submission | Component tests for the table and the action filter |
+| 6.1 | done (PR #37) | Audit list endpoint with filters and cursor | Audit tests |
+| 6.2 | done (PR #37); package D | Web: members and access, add member, change role, remove member (frames 34 to 37). **Trimmed:** general settings and the danger zone (frames 33, 38) are post-submission | Component tests (e2e scenario 8 is post-submission; its logic is covered by the member and audit server tests) |
+| 6.3 | done (PR #37); package D: a plain table with an action filter only | Web: audit trail as a plain table with an action filter (frame 39). **Trimmed:** the actor and entity-type filters, the JSON inspector and the CSV and JSON export (frame 40) are post-submission | Component tests for the table and the action filter |
 
 ### Phase 7: hardening, measurement, deployment
 
@@ -190,7 +190,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 | 7.2 | SHOULD | Load test tool and results (a 60-second run) | Numbers recorded in `PROGRESS.md`; targets met or explained |
 | 7.3 | post-submission | Accessibility pass | e2e scenario 10 |
 | 7.4 | MUST, Tue evening (first deploy, moved up), redeploy Thu; hardening done (PR #21) | Dockerfile (multi-stage, distroless or debian-slim), deploy workflows, Render, Vercel and Atlas setup per `DEPLOYMENT.md` | Smoke test checklist in `DEPLOYMENT.md` §8 passes on the hosted URLs |
-| 7.5 | implemented, PR to open (Tue) | Seed script for the demo (workspace "Engineering Team", three members, documents and a board like the Figma frames) | Runs against a fresh database |
+| 7.5 | done (PR #38) | Seed script for the demo (workspace "Engineering Team", three members, documents and a board like the Figma frames) | Runs against a fresh database |
 
 ### Phase 8 (optional): several nodes with Redis (post-submission)
 
