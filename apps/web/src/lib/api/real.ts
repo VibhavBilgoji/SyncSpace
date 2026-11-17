@@ -1,11 +1,18 @@
 import { request } from "./http";
-import type { AuthApi, DocumentsApi, VersionsApi, WorkspacesApi } from "./types";
+import type { AuthApi, BoardsApi, DocumentsApi, VersionsApi, WorkspacesApi } from "./types";
 import type {
+  Board,
+  CreateBoardRequest,
+  CreateTaskRequest,
   Document,
   DocumentSummary,
+  Member,
+  MoveTaskRequest,
   Page,
   RestoreResponse,
   SaveVersionRequest,
+  Task,
+  UpdateTaskRequest,
   VersionDetail,
   VersionSummary,
   User,
@@ -25,6 +32,7 @@ export const realAuth: AuthApi = {
 export const realWorkspaces: WorkspacesApi = {
   list: () => request<WorkspaceSummary[]>("GET", "/workspaces"),
   create: (input) => request<Workspace>("POST", "/workspaces", input),
+  members: (workspaceId) => request<Member[]>("GET", `/workspaces/${workspaceId}/members`),
 };
 
 export const realDocuments: DocumentsApi = {
@@ -49,4 +57,16 @@ export const realVersions: VersionsApi = {
   get: (docId, number) => request<VersionDetail>("GET", `/documents/${docId}/versions/${number}`),
   restore: (docId, number) =>
     request<RestoreResponse>("POST", `/documents/${docId}/versions/${number}/restore`),
+};
+
+export const realBoards: BoardsApi = {
+  list: (workspaceId) => request<Board[]>("GET", `/workspaces/${workspaceId}/boards`),
+  create: (workspaceId, input: CreateBoardRequest) =>
+    request<Board>("POST", `/workspaces/${workspaceId}/boards`, input),
+  tasks: (boardId) => request<Task[]>("GET", `/boards/${boardId}/tasks`),
+  createTask: (boardId, input: CreateTaskRequest) =>
+    request<Task>("POST", `/boards/${boardId}/tasks`, input),
+  updateTask: (id, input: UpdateTaskRequest) => request<Task>("PATCH", `/tasks/${id}`, input),
+  moveTask: (id, input: MoveTaskRequest) => request<Task>("PATCH", `/tasks/${id}/move`, input),
+  removeTask: (id) => request<void>("DELETE", `/tasks/${id}`),
 };

@@ -41,6 +41,37 @@ pub enum Status {
     Done,
 }
 
+impl Status {
+    /// The columns of a board, left to right.
+    pub const ALL: [Status; 5] = [
+        Status::Backlog,
+        Status::Todo,
+        Status::InProgress,
+        Status::Review,
+        Status::Done,
+    ];
+
+    /// The name used in the API and in MongoDB.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Backlog => "BACKLOG",
+            Self::Todo => "TODO",
+            Self::InProgress => "IN_PROGRESS",
+            Self::Review => "REVIEW",
+            Self::Done => "DONE",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|status| status.as_str() == name)
+    }
+
+    /// Position of the column, left to right.
+    pub fn rank(self) -> usize {
+        Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Priority {
@@ -48,6 +79,31 @@ pub enum Priority {
     Medium,
     High,
     Urgent,
+}
+
+impl Priority {
+    pub const ALL: [Priority; 4] = [
+        Priority::Low,
+        Priority::Medium,
+        Priority::High,
+        Priority::Urgent,
+    ];
+
+    /// The name used in the API and in MongoDB.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "LOW",
+            Self::Medium => "MEDIUM",
+            Self::High => "HIGH",
+            Self::Urgent => "URGENT",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|priority| priority.as_str() == name)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

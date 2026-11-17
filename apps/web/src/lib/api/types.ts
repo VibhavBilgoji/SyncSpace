@@ -1,12 +1,19 @@
 import type {
+  Board,
+  CreateBoardRequest,
   CreateDocumentRequest,
+  CreateTaskRequest,
   CreateWorkspaceRequest,
   Document,
   DocumentSummary,
+  Member,
+  MoveTaskRequest,
   Page,
   RestoreResponse,
   SaveVersionRequest,
+  Task,
   UpdateDocumentRequest,
+  UpdateTaskRequest,
   VersionDetail,
   VersionSummary,
   WsTicketRequest,
@@ -31,6 +38,8 @@ export interface AuthApi {
 export interface WorkspacesApi {
   list(): Promise<WorkspaceSummary[]>;
   create(input: CreateWorkspaceRequest): Promise<Workspace>;
+  /** The members of a workspace, the owner first. */
+  members(workspaceId: string): Promise<Member[]>;
 }
 
 export interface DocumentsApi {
@@ -49,9 +58,22 @@ export interface VersionsApi {
   restore(docId: string, number: number): Promise<RestoreResponse>;
 }
 
+export interface BoardsApi {
+  list(workspaceId: string): Promise<Board[]>;
+  create(workspaceId: string, input: CreateBoardRequest): Promise<Board>;
+  /** The tasks of a board in column order, then position. */
+  tasks(boardId: string): Promise<Task[]>;
+  createTask(boardId: string, input: CreateTaskRequest): Promise<Task>;
+  updateTask(id: string, input: UpdateTaskRequest): Promise<Task>;
+  /** Moves a task to a column; without neighbours it goes to the end of that column. */
+  moveTask(id: string, input: MoveTaskRequest): Promise<Task>;
+  removeTask(id: string): Promise<void>;
+}
+
 export interface Api {
   auth: AuthApi;
   workspaces: WorkspacesApi;
   documents: DocumentsApi;
   versions: VersionsApi;
+  boards: BoardsApi;
 }

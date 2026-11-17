@@ -5,6 +5,7 @@ pub mod api_types;
 pub mod app;
 pub mod audit;
 pub mod auth;
+pub mod boards;
 pub mod config;
 pub mod db;
 pub mod documents;

@@ -24,6 +24,7 @@ use crate::auth::handlers::UserResponse;
 use crate::auth::ticket::Scope;
 use crate::auth::validation::{LoginInput, RegisterInput};
 use crate::auth::ws_ticket::{TicketInput, TicketResponse};
+use crate::boards::validation::{CreateBoardInput, CreateTaskInput, MoveTaskInput, PatchTaskInput};
 use crate::documents::validation::{
     CreateInput as CreateDocumentInput, PatchInput as PatchDocumentInput,
 };
@@ -90,6 +91,10 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     AddMemberInput::export_all(config)?;
     RoleInput::export_all(config)?;
     CreateDocumentInput::export_all(config)?;
+    CreateBoardInput::export_all(config)?;
+    CreateTaskInput::export_all(config)?;
+    PatchTaskInput::export_all(config)?;
+    MoveTaskInput::export_all(config)?;
     Scope::export_all(config)?;
     TicketInput::export_all(config)?;
     TicketResponse::export_all(config)?;
