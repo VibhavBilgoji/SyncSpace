@@ -1,5 +1,8 @@
 import type {
+  AddMemberRequest,
+  AuditEntry,
   Board,
+  ChangeRoleRequest,
   CreateBoardRequest,
   CreateDocumentRequest,
   CreateTaskRequest,
@@ -40,6 +43,9 @@ export interface WorkspacesApi {
   create(input: CreateWorkspaceRequest): Promise<Workspace>;
   /** The members of a workspace, the owner first. */
   members(workspaceId: string): Promise<Member[]>;
+  addMember(workspaceId: string, input: AddMemberRequest): Promise<Member>;
+  changeRole(workspaceId: string, userId: string, input: ChangeRoleRequest): Promise<Member>;
+  removeMember(workspaceId: string, userId: string): Promise<void>;
 }
 
 export interface DocumentsApi {
@@ -70,10 +76,19 @@ export interface BoardsApi {
   removeTask(id: string): Promise<void>;
 }
 
+export interface AuditApi {
+  /** Newest first; ADMIN only. `action` narrows to one audited action. */
+  list(
+    workspaceId: string,
+    options?: { limit?: number; cursor?: string; action?: string },
+  ): Promise<Page<AuditEntry>>;
+}
+
 export interface Api {
   auth: AuthApi;
   workspaces: WorkspacesApi;
   documents: DocumentsApi;
   versions: VersionsApi;
   boards: BoardsApi;
+  audit: AuditApi;
 }
