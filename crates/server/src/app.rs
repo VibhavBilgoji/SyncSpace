@@ -200,6 +200,12 @@ pub fn api_route_table() -> Vec<RouteSpec> {
         ),
         RouteSpec::new(
             "GET",
+            "/workspaces/{wid}/audit",
+            Access::Member(Admin),
+            || get(crate::audit_api::list_audit),
+        ),
+        RouteSpec::new(
+            "GET",
             "/workspaces/{wid}/boards",
             Access::Member(Viewer),
             || get(crate::boards::handlers::list_boards),

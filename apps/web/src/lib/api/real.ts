@@ -1,6 +1,14 @@
 import { request } from "./http";
-import type { AuthApi, BoardsApi, DocumentsApi, VersionsApi, WorkspacesApi } from "./types";
 import type {
+  AuditApi,
+  AuthApi,
+  BoardsApi,
+  DocumentsApi,
+  VersionsApi,
+  WorkspacesApi,
+} from "./types";
+import type {
+  AuditEntry,
   Board,
   CreateBoardRequest,
   CreateTaskRequest,
@@ -33,6 +41,12 @@ export const realWorkspaces: WorkspacesApi = {
   list: () => request<WorkspaceSummary[]>("GET", "/workspaces"),
   create: (input) => request<Workspace>("POST", "/workspaces", input),
   members: (workspaceId) => request<Member[]>("GET", `/workspaces/${workspaceId}/members`),
+  addMember: (workspaceId, input) =>
+    request<Member>("POST", `/workspaces/${workspaceId}/members`, input),
+  changeRole: (workspaceId, userId, input) =>
+    request<Member>("PATCH", `/workspaces/${workspaceId}/members/${userId}`, input),
+  removeMember: (workspaceId, userId) =>
+    request<void>("DELETE", `/workspaces/${workspaceId}/members/${userId}`),
 };
 
 export const realDocuments: DocumentsApi = {
@@ -69,4 +83,15 @@ export const realBoards: BoardsApi = {
   updateTask: (id, input: UpdateTaskRequest) => request<Task>("PATCH", `/tasks/${id}`, input),
   moveTask: (id, input: MoveTaskRequest) => request<Task>("PATCH", `/tasks/${id}/move`, input),
   removeTask: (id) => request<void>("DELETE", `/tasks/${id}`),
+};
+
+export const realAudit: AuditApi = {
+  list: (workspaceId, { limit, cursor, action } = {}) => {
+    const query = new URLSearchParams();
+    if (limit !== undefined) query.set("limit", String(limit));
+    if (cursor !== undefined) query.set("cursor", cursor);
+    if (action !== undefined && action !== "") query.set("action", action);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return request<Page<AuditEntry>>("GET", `/workspaces/${workspaceId}/audit${suffix}`);
+  },
 };

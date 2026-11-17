@@ -178,9 +178,9 @@ The deliverable and acceptance text is the original, except where it asks for te
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 6.1 | MUST, Thu | Audit list endpoint with filters and cursor | Audit tests |
-| 6.2 | MUST, package D | Web: members and access, add member, change role, remove member (frames 34 to 37). **Trimmed:** general settings and the danger zone (frames 33, 38) are post-submission | Component tests (e2e scenario 8 is post-submission; its logic is covered by the member and audit server tests) |
-| 6.3 | MUST, package D: a plain table with an action filter only | Web: audit trail as a plain table with an action filter (frame 39). **Trimmed:** the actor and entity-type filters, the JSON inspector and the CSV and JSON export (frame 40) are post-submission | Component tests for the table and the action filter |
+| 6.1 | implemented, PR to open (Tue) | Audit list endpoint with filters and cursor | Audit tests |
+| 6.2 | implemented, PR to open (Tue); package D | Web: members and access, add member, change role, remove member (frames 34 to 37). **Trimmed:** general settings and the danger zone (frames 33, 38) are post-submission | Component tests (e2e scenario 8 is post-submission; its logic is covered by the member and audit server tests) |
+| 6.3 | implemented, PR to open (Tue); package D: a plain table with an action filter only | Web: audit trail as a plain table with an action filter (frame 39). **Trimmed:** the actor and entity-type filters, the JSON inspector and the CSV and JSON export (frame 40) are post-submission | Component tests for the table and the action filter |
 
 ### Phase 7: hardening, measurement, deployment
 

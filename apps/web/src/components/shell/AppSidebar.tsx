@@ -72,7 +72,7 @@ export function AppSidebar() {
             Audit Trail
           </NavItem>
         )}
-        <NavItem href={`${base}/settings`} active={pathname.startsWith(`${base}/settings`)}>
+        <NavItem href={`${base}/settings/members`} active={pathname.startsWith(`${base}/settings`)}>
           Settings &amp; Members
         </NavItem>
       </nav>

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApi } from "./index";
 import { createMockApi } from "./mock";
-import { realAuth, realBoards, realVersions, realWorkspaces } from "./real";
+import { realAudit, realAuth, realBoards, realVersions, realWorkspaces } from "./real";
 
 describe("mock auth", () => {
   it("registers, normalizes the email and starts a session", async () => {
@@ -352,6 +352,79 @@ describe("real boards", () => {
       'PATCH /api/v1/tasks/t1/move {"to_status":"DONE","before_id":"t0"}',
       "DELETE /api/v1/tasks/t1",
       "GET /api/v1/workspaces/w1/members",
+    ]);
+  });
+});
+
+describe("mock members and audit", () => {
+  async function ready() {
+    const api = createMockApi();
+    await api.auth.register({ name: "Ada", email: "ada@example.com", password: "password1" });
+    const workspace = await api.workspaces.create({ name: "Eng", slug: "eng" });
+    return { api, workspace };
+  }
+
+  it("adds a registered account and refuses an unknown email with 404", async () => {
+    const { api, workspace } = await ready();
+    await expect(
+      api.workspaces.addMember(workspace.id, { email: "nobody@example.com", role: "VIEWER" }),
+    ).rejects.toMatchObject({ status: 404 });
+    const other = createMockApi();
+    await other.auth.register({ name: "Bo", email: "bo@example.com", password: "password1" });
+    // A second account in the same mock: register through the same instance.
+    await api.auth.register({ name: "Bo", email: "bo@example.com", password: "password1" });
+    await api.auth.login({ email: "ada@example.com", password: "password1" });
+    const added = await api.workspaces.addMember(workspace.id, {
+      email: " Bo@Example.com ",
+      role: "EDITOR",
+    });
+    expect(added).toMatchObject({ name: "Bo", role: "EDITOR", is_owner: false });
+  });
+
+  it("changes a role, removes a member and needs a session for the audit list", async () => {
+    const { api, workspace } = await ready();
+    await api.auth.register({ name: "Bo", email: "bo@example.com", password: "password1" });
+    await api.auth.login({ email: "ada@example.com", password: "password1" });
+    const bo = await api.workspaces.addMember(workspace.id, {
+      email: "bo@example.com",
+      role: "VIEWER",
+    });
+    expect(
+      await api.workspaces.changeRole(workspace.id, bo.user_id, { role: "ADMIN" }),
+    ).toMatchObject({ role: "ADMIN" });
+    await expect(api.workspaces.removeMember(workspace.id, bo.user_id)).resolves.toBeUndefined();
+    await expect(api.workspaces.removeMember(workspace.id, "nobody")).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(await api.audit.list(workspace.id)).toEqual({ items: [], next_cursor: null });
+    await expect(createMockApi().audit.list("w")).rejects.toMatchObject({ status: 401 });
+    expect(buildApi("").audit).toBe(realAudit);
+    expect(buildApi("audit").audit).not.toBe(realAudit);
+  });
+});
+
+describe("real members and audit", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("calls the documented endpoints", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json({})));
+    vi.stubGlobal("fetch", fetchMock);
+    await realWorkspaces.addMember("w1", { email: "a@x.dev", role: "EDITOR" });
+    await realWorkspaces.changeRole("w1", "u2", { role: "ADMIN" });
+    await realWorkspaces.removeMember("w1", "u2");
+    await realAudit.list("w1");
+    await realAudit.list("w1", { limit: 50, cursor: "123_abc", action: "TASK_MOVE" });
+    await realAudit.list("w1", { action: "" });
+    const calls = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).map(
+      ([url, init]) => `${init.method} ${url}${init.body ? ` ${init.body}` : ""}`,
+    );
+    expect(calls).toEqual([
+      'POST /api/v1/workspaces/w1/members {"email":"a@x.dev","role":"EDITOR"}',
+      'PATCH /api/v1/workspaces/w1/members/u2 {"role":"ADMIN"}',
+      "DELETE /api/v1/workspaces/w1/members/u2",
+      "GET /api/v1/workspaces/w1/audit",
+      "GET /api/v1/workspaces/w1/audit?limit=50&cursor=123_abc&action=TASK_MOVE",
+      "GET /api/v1/workspaces/w1/audit",
     ]);
   });
 });

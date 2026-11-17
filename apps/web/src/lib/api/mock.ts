@@ -128,6 +128,38 @@ export function createMockApi(): Api {
           },
         ];
       },
+      async addMember(workspaceId, { email, role }) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const target = users.find((u) => u.email === email.trim().toLowerCase());
+        if (!target) throw new ApiError(404, "NOT_FOUND", "no account uses this email");
+        if (!workspaces.some((w) => w.id === workspaceId)) {
+          throw new ApiError(404, "NOT_FOUND", "workspace not found");
+        }
+        return {
+          user_id: target.id,
+          name: target.name,
+          email: target.email,
+          role,
+          joined_at: new Date().toISOString(),
+          is_owner: false,
+        };
+      },
+      async changeRole(_workspaceId, userId, { role }) {
+        const target = users.find((u) => u.id === userId);
+        if (!target) throw new ApiError(404, "NOT_FOUND", "not a member");
+        return {
+          user_id: target.id,
+          name: target.name,
+          email: target.email,
+          role,
+          joined_at: new Date().toISOString(),
+          is_owner: false,
+        };
+      },
+      async removeMember(_workspaceId, userId) {
+        if (!users.some((u) => u.id === userId))
+          throw new ApiError(404, "NOT_FOUND", "not a member");
+      },
       async create({ name, slug }) {
         if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
         const details: Record<string, string> = {};
@@ -226,6 +258,12 @@ export function createMockApi(): Api {
         const index = documents.findIndex((d) => d.id === docId);
         if (index < 0) throw new ApiError(404, "NOT_FOUND", "not found");
         documents.splice(index, 1);
+      },
+    },
+    audit: {
+      async list() {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        return { items: [], next_cursor: null };
       },
     },
     boards: {

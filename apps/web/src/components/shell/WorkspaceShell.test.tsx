@@ -60,7 +60,7 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByRole("link", { name: /Audit Trail/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Settings/ })).toHaveAttribute(
       "href",
-      "/w/eng/settings",
+      "/w/eng/settings/members",
     );
     expect(screen.getAllByText(role).length).toBeGreaterThan(0);
   });

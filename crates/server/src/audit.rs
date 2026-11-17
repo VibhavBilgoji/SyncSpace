@@ -184,6 +184,92 @@ pub async fn record(
     Ok(())
 }
 
+/// Every action the audit table of `docs/DATA_MODEL.md` lists.
+pub const ACTIONS: [&str; 10] = [
+    "MEMBER_ADD",
+    "MEMBER_REMOVE",
+    "ROLE_CHANGE",
+    "DOC_CREATE",
+    "DOC_DELETE",
+    "VERSION_SAVE",
+    "VERSION_RESTORE",
+    "TASK_CREATE",
+    "TASK_MOVE",
+    "TASK_DELETE",
+];
+
+/// The kinds of thing an event can be about.
+pub const ENTITY_TYPES: [&str; 4] = ["DOCUMENT", "TASK", "WORKSPACE", "MEMBER"];
+
+/// What a listing may be narrowed to; every field present must match.
+#[derive(Debug, Default, Clone)]
+pub struct Filter {
+    pub action: Option<String>,
+    pub actor_id: Option<ObjectId>,
+    pub entity_type: Option<String>,
+}
+
+/// Where the previous page ended: rows come newest first, ordered by time and then by id, so the
+/// next page is everything strictly after this point in that order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cursor {
+    pub timestamp: DateTime,
+    pub id: ObjectId,
+}
+
+impl Cursor {
+    /// The opaque text the API hands out: `<milliseconds>_<id>`.
+    pub fn encode(&self) -> String {
+        format!("{}_{}", self.timestamp.timestamp_millis(), self.id.to_hex())
+    }
+
+    pub fn decode(raw: &str) -> Option<Self> {
+        let (millis, id) = raw.split_once('_')?;
+        Some(Self {
+            timestamp: DateTime::from_millis(millis.parse().ok()?),
+            id: ObjectId::parse_str(id).ok()?,
+        })
+    }
+}
+
+/// Up to `limit` rows of a workspace's log, newest first, starting after `after`. The log is
+/// only ever read here (rule 5): the only writes are the inserts of [`record`].
+pub async fn list(
+    db: &Database,
+    workspace_id: ObjectId,
+    filter: &Filter,
+    after: Option<Cursor>,
+    limit: i64,
+) -> Result<Vec<Document>, mongodb::error::Error> {
+    use futures_util::TryStreamExt;
+    let mut query = doc! { "workspace_id": workspace_id };
+    if let Some(action) = &filter.action {
+        query.insert("action", action);
+    }
+    if let Some(actor) = filter.actor_id {
+        query.insert("actor_id", actor);
+    }
+    if let Some(entity_type) = &filter.entity_type {
+        query.insert("entity_type", entity_type);
+    }
+    if let Some(cursor) = after {
+        query.insert(
+            "$or",
+            vec![
+                doc! { "timestamp": { "$lt": cursor.timestamp } },
+                doc! { "timestamp": cursor.timestamp, "_id": { "$lt": cursor.id } },
+            ],
+        );
+    }
+    db.collection::<Document>(COLLECTION)
+        .find(query)
+        .sort(doc! { "timestamp": -1, "_id": -1 })
+        .limit(limit)
+        .await?
+        .try_collect()
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
