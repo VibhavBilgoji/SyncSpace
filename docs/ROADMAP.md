@@ -151,7 +151,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
 | 3.1 | done (PR #23; avatars and count only, K1) | Awareness: presence avatars, remote cursors and selections with sticky indices, `PRESENCE_COUNT` | e2e scenario 2 |
-| 3.2 | implemented, PR to open (Tue) | Reconnect with backoff and ticket refresh; reconnecting banner and pill. **Trimmed:** no "Waiting to sync" state (frame 13) | Socket client tests (e2e scenario 5 is post-submission) |
+| 3.2 | done (PR #29) | Reconnect with backoff and ticket refresh; reconnecting banner and pill. **Trimmed:** no "Waiting to sync" state (frame 13) | Socket client tests (e2e scenario 5 is post-submission) |
 | 3.3 | done (PR #20, ADR-014; the simple version) | Live role changes and removal; viewer mode. **Trimmed:** a demoted or removed user stops editing at once; toasts and frame 42 are post-submission | Frame tests; e2e scenario 3 (scenario 4 is post-submission; the server test "a demoted editor's next update is rejected" covers its logic) |
 | 3.4 | SHOULD | Session expiry: on close code 4001 redirect to login (the full flow keeping unsynced edits, frame 41, is post-submission) | Socket client test for 4001 |
 | 3.5 | SHOULD | Share dialog (15), delete dialog (16), command palette (17), workspace socket with `DOC_LIST_EVENT` and `MEMBER_EVENT` | Component tests (e2e scenario 9 is post-submission) |
@@ -164,7 +164,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 | 4.2 | **post-submission (FR15 is future work, ADR-012)**, dropped on 17 November | Automatic versions worker (10 min, last editor leaves) with controllable clock | Automatic version tests |
 | 4.3 | done (PR #27) | Manual save, list, preview endpoints with VERSION_SAVE audit and `VERSION_CREATED` broadcast | Integration and RBAC tests |
 | 4.4 | done (PR #25) | `replace_content` in `sync-crdt` and the restore endpoint with VERSION_RESTORE and `DOC_RESTORED` | Restore tests (crate and server) |
-| 4.5 | MUST, next (package D: with preview mode) | Web: history panel, create named version, preview mode, restore confirmation and success, viewer and empty variants, "no longer kept" (frames 18 to 24b) | Component tests; e2e scenario 6 (Thursday, when the restore endpoint has been integrated) |
+| 4.5 | implemented, PR to open (Tue) (package D: with preview mode) | Web: history panel, create named version, preview mode, restore confirmation and success, viewer and empty variants, "no longer kept" (frames 18 to 24b) | Component tests; e2e scenario 6 (Thursday, when the restore endpoint has been integrated) |
 
 ### Phase 5: Kanban
 

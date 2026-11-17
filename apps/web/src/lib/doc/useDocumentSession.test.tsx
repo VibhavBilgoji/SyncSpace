@@ -235,3 +235,76 @@ describe("the connection pill", () => {
     }
   });
 });
+
+describe("version frames", () => {
+  const summary = {
+    version_number: 5,
+    change_type: "MANUAL",
+    label: "Before the demo",
+    restored_from: null,
+    restored_from_kept: null,
+    created_by: { id: "u1", name: "Grace Hopper" },
+    created_at: "2026-11-17T10:15:00Z",
+  };
+
+  function send(frame: unknown) {
+    act(() => {
+      FakeSocket.instances[0]?.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent);
+    });
+  }
+
+  async function live() {
+    const view = start();
+    await settle();
+    act(() => FakeSocket.instances[0]?.open());
+    return view;
+  }
+
+  it("has no version event until a frame arrives, and other frames do not make one", async () => {
+    const { result } = await live();
+    expect(result.current.versionEvent).toBeNull();
+    send({ type: "PRESENCE_COUNT", active_sockets: 3 });
+    send({ type: "SNAPSHOT_SAVED", revision: 2, saved_at: "2026-11-17T10:00:00Z" });
+    expect(result.current.versionEvent).toBeNull();
+    expect(result.current.activeSockets).toBe(3);
+  });
+
+  it("turns VERSION_CREATED into a created event holding the summary (without the frame type)", async () => {
+    const { result } = await live();
+    send({ type: "VERSION_CREATED", ...summary });
+    expect(result.current.versionEvent).toEqual({ seq: 1, kind: "created", version: summary });
+    expect(result.current.versionEvent?.version).not.toHaveProperty("type");
+  });
+
+  it("turns DOC_RESTORED into a restored event with who did it and from which version", async () => {
+    const { result } = await live();
+    const restore = {
+      ...summary,
+      version_number: 6,
+      change_type: "RESTORE",
+      label: "Restored from Version 2",
+      restored_from: 2,
+      restored_from_kept: true,
+    };
+    send({
+      type: "DOC_RESTORED",
+      restored_from: 2,
+      by: { id: "u1", name: "Grace Hopper" },
+      restore_version: restore,
+    });
+    expect(result.current.versionEvent).toEqual({
+      seq: 1,
+      kind: "restored",
+      by: { id: "u1", name: "Grace Hopper" },
+      restoredFrom: 2,
+      version: restore,
+    });
+  });
+
+  it("gives every frame its own seq, even an identical one, so a panel reacts to each", async () => {
+    const { result } = await live();
+    send({ type: "VERSION_CREATED", ...summary });
+    send({ type: "VERSION_CREATED", ...summary });
+    expect(result.current.versionEvent?.seq).toBe(2);
+  });
+});
