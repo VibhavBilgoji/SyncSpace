@@ -771,7 +771,16 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     for _ in 0..600u32 {
         let frame = update_frame_of(&vec![0u8; 60_000]);
         match sender.stream.send_frame_ok(frame).await {
-            Ok(()) => sent += 1,
+            Ok(()) => {
+                sent += 1;
+                // Paced: the connection also queues an echo of every update it sends and is closed
+                // as "too slow" when it falls 64 behind on its own (the failure this test showed on
+                // CI). A short pause every ten frames lets the server drain its side; the slow socket still falls
+                // behind, because it is not reading at all.
+                if sent.is_multiple_of(10) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
             Err(error) => {
                 send_error = Some(error.to_string());
                 break;
@@ -782,17 +791,28 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     // and including the close frame (the first thing in its buffer is only the join-time PRESENCE_COUNT).
     let mut sender_saw = Vec::new();
     if send_error.is_some() {
+        // The raw close frame, so the reason text is kept (the test client reports only the code).
+        use futures_util::StreamExt;
         while sender_saw.len() < 20 {
-            match sender.recv_within(Duration::from_secs(3)).await {
-                Some(Frame::Closed(code)) => {
-                    sender_saw.push(format!("closed {code:?}"));
+            match tokio::time::timeout(Duration::from_secs(3), sender.stream.next()).await {
+                Ok(Some(Ok(Message::Close(frame)))) => {
+                    sender_saw.push(format!("closed {frame:?}"));
                     break;
                 }
-                Some(Frame::Json(body)) => sender_saw.push(body.to_string()),
-                Some(Frame::Binary(bytes)) => {
+                Ok(Some(Ok(Message::Text(body)))) => sender_saw.push(body.to_string()),
+                Ok(Some(Ok(Message::Binary(bytes)))) => {
                     sender_saw.push(format!("binary {} bytes", bytes.len()))
                 }
-                None => {
+                Ok(Some(Ok(_))) => {}
+                Ok(Some(Err(error))) => {
+                    sender_saw.push(format!("read error {error}"));
+                    break;
+                }
+                Ok(None) => {
+                    sender_saw.push("stream ended".to_string());
+                    break;
+                }
+                Err(_) => {
                     sender_saw.push("silence".to_string());
                     break;
                 }
