@@ -17,8 +17,8 @@ use ts_rs::{Config, TS};
 
 use crate::api_types::{
     ApiErrorBody, ApiErrorResponse, AuditEntry, Block, BlockType, Board, ChangeType, Document,
-    DocumentSummary, ErrorCode, Page, Priority, Status, StatusCounts, Task, UserRef, VersionDetail,
-    VersionSummary,
+    DocumentSummary, ErrorCode, Page, Priority, RestoreResponse, Status, StatusCounts, Task,
+    UserRef, VersionDetail, VersionSummary,
 };
 use crate::auth::handlers::UserResponse;
 use crate::auth::ticket::Scope;
@@ -109,6 +109,7 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     Document::export_all(config)?;
     VersionSummary::export_all(config)?;
     VersionDetail::export_all(config)?;
+    RestoreResponse::export_all(config)?;
     StatusCounts::export_all(config)?;
     Board::export_all(config)?;
     Task::export_all(config)?;

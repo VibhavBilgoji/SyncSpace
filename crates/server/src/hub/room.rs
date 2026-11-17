@@ -167,6 +167,38 @@ impl DocRoom {
         Ok(handled)
     }
 
+    /// Replaces the content with the one of `target_state` (restore, task 4.4), as one update that
+    /// goes to every connection. Returns the state as it was **before**, for the RESTORE version.
+    /// Under the same cap as any edit; nothing changes when it fails.
+    pub fn restore(
+        &self,
+        target_state: &[u8],
+        scratch_client_id: u64,
+    ) -> Result<Vec<u8>, RoomError> {
+        let target = CrdtDocument::new(2).map_err(RoomError::Crdt)?;
+        target.apply_update(target_state).map_err(RoomError::Crdt)?;
+        let doc = self.doc();
+        let before = doc.encode_state_as_update();
+        let update = doc
+            .restore_update(&target, scratch_client_id)
+            .map_err(RoomError::Crdt)?;
+        if is_empty_update(&update) {
+            return Ok(before);
+        }
+        if before.len().saturating_add(update.len()) > self.max_state_bytes {
+            return Err(RoomError::TooBig);
+        }
+        doc.apply_update(&update).map_err(RoomError::Crdt)?;
+        self.dirty.store(true, Ordering::SeqCst);
+        self.metrics.edit();
+        // From nobody: every connection, the restorer's included, takes the new content.
+        self.broadcast(Outgoing::Frame {
+            from: u64::MAX,
+            bytes: Bytes::from(sync_crdt::update_frame(&update)),
+        });
+        Ok(before)
+    }
+
     /// Whether anything changed since the last snapshot.
     pub fn is_dirty(&self) -> bool {
         self.dirty.load(Ordering::SeqCst)

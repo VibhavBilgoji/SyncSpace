@@ -11,7 +11,7 @@ use sync_crdt::Document as CrdtDocument;
 use ts_rs::TS;
 
 use super::{creators, summary, validate_label};
-use crate::api_types::{Block, Page, VersionDetail, VersionSummary};
+use crate::api_types::{Block, Page, RestoreResponse, UserRef, VersionDetail, VersionSummary};
 use crate::app::AppState;
 use crate::audit::{self, AuditEvent};
 use crate::auth::AuthUser;
@@ -21,7 +21,7 @@ use crate::documents::api_block;
 use crate::error::ApiError;
 use crate::extract::ApiJson;
 use crate::hub::frames::ServerFrame;
-use crate::hub::room::Outgoing;
+use crate::hub::room::{Outgoing, RoomError};
 use crate::rbac::{Role, parse_id, require_role};
 
 const DEFAULT_LIMIT: i64 = 20;
@@ -237,4 +237,96 @@ pub fn version_error(error: versions::VersionError) -> ApiError {
         versions::VersionError::Mongo(e) => e.into(),
         versions::VersionError::Corrupt => ApiError::internal("a version could not be stored"),
     }
+}
+
+/// A random replica id for the scratch copy a restore works on: 53 bits, never 0 or 1.
+fn scratch_client_id() -> u64 {
+    let bits = uuid::Uuid::new_v4().as_u128() as u64 & ((1u64 << 53) - 1);
+    bits.max(2)
+}
+
+pub async fn restore_version(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((id, number)): Path<(String, i32)>,
+) -> Result<Json<RestoreResponse>, ApiError> {
+    let id = parse_id(&id)?;
+    let record = require_document(&state, id, user.id, Role::Editor).await?;
+    let archived = versions::get(&state.db, id, number)
+        .await?
+        .ok_or_else(version_not_found)?;
+    let target = state_of(&archived)?;
+
+    let room = state
+        .hub
+        .room(&state.db, id)
+        .await
+        .map_err(|_| document_not_found())?;
+    let before = match room.restore(&target, scratch_client_id()) {
+        Ok(before) => before,
+        Err(RoomError::TooBig) => return Err(ApiError::PayloadTooLarge),
+        Err(RoomError::Crdt(_)) => {
+            return Err(ApiError::internal("the version could not be restored"));
+        }
+    };
+    // The RESTORE row holds the content as it was before, so a restore can be undone.
+    let saved = versions::insert_next(
+        &state.db,
+        NewVersion {
+            document_id: id,
+            workspace_id: record.workspace_id,
+            change_type: versions::RESTORE,
+            label: None,
+            restored_from: Some(number),
+            created_by: Some(user.id),
+            state: &before,
+        },
+        state.config.auto_version_retention,
+    )
+    .await
+    .map_err(version_error)?;
+    audit::record(
+        &state.db,
+        record.workspace_id,
+        user.id,
+        &AuditEvent::VersionRestore {
+            document_id: id,
+            restored_from: number,
+            version_number: saved.version_number,
+        },
+    )
+    .await?;
+    // Written at once, so the revision in the answer includes the restore.
+    state
+        .hub
+        .flush_room(&state.db, &room)
+        .await
+        .map_err(ApiError::from)?;
+    let revision = documents::find(&state.db, id)
+        .await?
+        .map(|d| d.revision)
+        .unwrap_or_default();
+
+    let me = UserRef {
+        id: user.id.to_hex(),
+        name: crate::db::users::find_by_id(&state.db, user.id)
+            .await?
+            .map(|u| u.name)
+            .unwrap_or_default(),
+    };
+    let body = summary(&saved, Some(me.clone()), Some(true));
+    room.broadcast(Outgoing::Json(
+        ServerFrame::DocRestored {
+            restored_from: number,
+            by: me,
+            restore_version: body.clone(),
+        }
+        .to_text(),
+    ));
+    // Nobody else has it open: write what is left and let the room go.
+    state.hub.release(&state.db, &room).await;
+    Ok(Json(RestoreResponse {
+        restore_version: body,
+        revision,
+    }))
 }

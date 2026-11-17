@@ -19,6 +19,7 @@ export type { Member } from "./Member";
 export type { Page } from "./Page";
 export type { Priority } from "./Priority";
 export type { RegisterRequest } from "./RegisterRequest";
+export type { RestoreResponse } from "./RestoreResponse";
 export type { Role } from "./Role";
 export type { SaveVersionRequest } from "./SaveVersionRequest";
 export type { Scope } from "./Scope";
