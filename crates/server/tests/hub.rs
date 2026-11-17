@@ -738,6 +738,55 @@ async fn too_many_updates_get_a_rate_limited_error_and_the_connection_stays_open
     assert_eq!(client.recv_json("PONG").await["t"], 9);
 }
 
+#[test]
+fn the_room_channel_is_at_least_four_times_the_update_burst() {
+    // Every update a connection sends is also queued as an echo for itself, so a channel that is
+    // not much larger than the burst closes a fast sender as "too slow" (seen on CI, see
+    // PROGRESS.md). The default must keep that margin.
+    let config = HubConfig::default();
+    assert!(
+        config.broadcast_capacity >= 4 * config.updates.burst as usize,
+        "{} is less than 4 x {}",
+        config.broadcast_capacity,
+        config.updates.burst
+    );
+}
+
+#[tokio::test]
+async fn a_full_burst_of_updates_and_their_echoes_disconnects_nobody() {
+    let app = TestApp::real().await;
+    let room = Room::new(&app).await;
+    let mut idle = join(&app, &room, room.viewer(), 1001).await; // never reads during the burst
+    let mut sender = join(&app, &room, room.editor(), 1002).await;
+
+    // The whole burst the rate limit allows, as fast as the socket takes it.
+    let burst = HubConfig::default().updates.burst;
+    for _ in 0..burst {
+        sender
+            .stream
+            .send_frame_ok(update_frame_of(&[0u8; 200]))
+            .await
+            .unwrap();
+    }
+    // Nobody was closed: both still answer a ping, and the sender's own echoes did not close it.
+    for (client, t) in [(&mut sender, 1), (&mut idle, 2)] {
+        client
+            .send_text(&format!(r#"{{"type":"PING","t":{t}}}"#))
+            .await;
+        // Read past the queued frames; a close frame before the pong is the failure.
+        loop {
+            match client.recv().await {
+                Frame::Json(body) if body["type"] == "PONG" => {
+                    assert_eq!(body["t"], t);
+                    break;
+                }
+                Frame::Closed(code) => panic!("closed with {code:?} instead of answering"),
+                _ => {}
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     let app = TestApp::spawn(
@@ -745,6 +794,8 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
             hub: Some(HubConfig {
                 // A long send timeout keeps this on the lag path; the timeout has its own tests.
                 send_timeout: Duration::from_secs(60),
+                // The default channel is far larger than the burst; this test needs a small one.
+                broadcast_capacity: 64,
                 updates: BucketConfig {
                     burst: 100_000,
                     per_second: 100_000,
