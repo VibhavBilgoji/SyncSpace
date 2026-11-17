@@ -175,6 +175,11 @@ impl Hub {
         present
     }
 
+    /// The open room of a document, if there is one; never loads or creates a room.
+    pub fn peek_room(&self, id: ObjectId) -> Option<Arc<DocRoom>> {
+        self.rooms().get(&id).and_then(|cell| cell.get().cloned())
+    }
+
     /// Every open room.
     pub fn open_room_list(&self) -> Vec<Arc<DocRoom>> {
         self.rooms()

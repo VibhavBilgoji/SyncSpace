@@ -78,7 +78,7 @@ pub fn summary(record: &DocumentRecord) -> DocumentSummary {
 
 /// One stored block as the API shows it; a block with an unknown type (which the CRDT checks keep
 /// out) is left out rather than failing the whole document.
-fn api_block(record: &BlockRecord) -> Option<api_types::Block> {
+pub fn api_block(record: &BlockRecord) -> Option<api_types::Block> {
     let block_type =
         serde_json::from_value(serde_json::Value::String(record.block_type.clone())).ok()?;
     Some(api_types::Block {
