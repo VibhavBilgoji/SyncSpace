@@ -778,6 +778,16 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
             }
         }
     }
+    // When the server cut the sender off, say how (the close code the sender can still read).
+    let mut sender_closed = None;
+    if send_error.is_some() {
+        sender_closed = Some(
+            sender
+                .recv_within(Duration::from_secs(2))
+                .await
+                .map(|frame| format!("{frame:?}")),
+        );
+    }
     let mut received = 0u32;
     let outcome = loop {
         match slow.recv_within(common::ws::WAIT).await {
@@ -789,8 +799,9 @@ async fn a_consumer_that_falls_too_far_behind_is_dropped_with_1008() {
     assert_eq!(
         outcome,
         Some(Some(CLOSE_POLICY)),
-        "sender sent {sent} of 600 frames (send error: {send_error:?}); the slow socket read \
-         {received} frames and then heard nothing for {:?}",
+        "sender sent {sent} of 600 frames (send error: {send_error:?}; read from the sender \
+         afterwards: {sender_closed:?}); the slow socket read {received} frames and then heard \
+         nothing for {:?}",
         common::ws::WAIT
     );
 }
