@@ -14,7 +14,7 @@ import init, {
   orderBetween,
   updateFrame,
 } from "@/wasm/pkg/sync_crdt";
-import type { Block, BlockType, ServerFrame } from "@/types/generated";
+import type { Block, BlockType, ServerFrame, UserRef, VersionSummary } from "@/types/generated";
 
 export type SessionStatus =
   | "loading"
@@ -26,6 +26,12 @@ export type SessionStatus =
   | "unauthorized" // 4001
   | "failed";
 
+/** A version frame from the server, for an open history panel. `seq` makes each one distinct. */
+export type VersionEvent = { seq: number } & (
+  | { kind: "created"; version: VersionSummary }
+  | { kind: "restored"; by: UserRef; restoredFrom: number; version: VersionSummary }
+);
+
 export interface DocumentSession {
   status: SessionStatus;
   blocks: Block[];
@@ -34,6 +40,8 @@ export interface DocumentSession {
   peers: string[];
   /** Last snapshot the server reported: `rev_N · Saved to MongoDB`. */
   saved: { revision: number; savedAt: string } | null;
+  /** The last `VERSION_CREATED` or `DOC_RESTORED` frame (history panel, toast). */
+  versionEvent: VersionEvent | null;
   /** The code of the last `ERROR` frame, for example READ_ONLY. */
   notice: string | null;
   insertText(blockId: string, index: number, chunk: string): void;
@@ -99,6 +107,8 @@ export function useDocumentSession(docId: string): DocumentSession {
   const [activeSockets, setActiveSockets] = useState(0);
   const [saved, setSaved] = useState<DocumentSession["saved"]>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [versionEvent, setVersionEvent] = useState<VersionEvent | null>(null);
+  const eventSeq = useRef(0);
   const [peers, setPeers] = useState<string[]>([]);
   const { session } = useSession();
   const myName = session.status === "authed" ? session.user.name : "Someone";
@@ -183,6 +193,26 @@ export function useDocumentSession(docId: string): DocumentSession {
           else if (frame.type === "SNAPSHOT_SAVED")
             setSaved({ revision: frame.revision, savedAt: frame.saved_at });
           else if (frame.type === "ERROR") setNotice(frame.code);
+          else if (frame.type === "VERSION_CREATED") {
+            const version: VersionSummary = {
+              version_number: frame.version_number,
+              change_type: frame.change_type,
+              label: frame.label,
+              restored_from: frame.restored_from,
+              restored_from_kept: frame.restored_from_kept,
+              created_by: frame.created_by,
+              created_at: frame.created_at,
+            };
+            setVersionEvent({ seq: (eventSeq.current += 1), kind: "created", version });
+          } else if (frame.type === "DOC_RESTORED") {
+            setVersionEvent({
+              seq: (eventSeq.current += 1),
+              kind: "restored",
+              by: frame.by,
+              restoredFrom: frame.restored_from,
+              version: frame.restore_version,
+            });
+          }
           return;
         }
         const bytes = new Uint8Array(event.data as ArrayBuffer);
@@ -312,6 +342,7 @@ export function useDocumentSession(docId: string): DocumentSession {
     activeSockets,
     peers,
     saved,
+    versionEvent,
     notice,
     insertText,
     deleteText,

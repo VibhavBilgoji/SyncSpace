@@ -22,6 +22,7 @@ function fakeSession(overrides: Partial<DocumentSession> = {}): DocumentSession 
     peers: [],
     saved: { revision: 4, savedAt: "2026-11-17T10:00:00Z" },
     notice: null,
+    versionEvent: null,
     insertText: vi.fn(),
     deleteText: vi.fn(),
     createBlockAfter: vi.fn(() => "blk000000002"),
@@ -218,5 +219,75 @@ describe("filterSlashItems", () => {
     expect(filterSlashItems("")).toHaveLength(6);
     expect(filterSlashItems("CODE").map((i) => i.type)).toEqual(["CODE"]);
     expect(filterSlashItems("xyz")).toEqual([]);
+  });
+});
+
+describe("DocumentEditor preview (frame 20)", () => {
+  const archived = {
+    version: {
+      version_number: 4,
+      change_type: "MANUAL" as const,
+      label: "Before the demo",
+      restored_from: null,
+      restored_from_kept: null,
+      created_by: { id: "u1", name: "Ada Lovelace" },
+      created_at: "2026-11-17T10:15:00Z",
+    },
+    blocks: [block("arch00000001", { content: "Old text" })],
+  };
+
+  function renderPreview(role: "ADMIN" | "EDITOR" | "VIEWER", onLeave = vi.fn()) {
+    const session = fakeSession({
+      blocks: [block("blk000000001", { content: "Live text" })],
+    });
+    render(
+      <DocumentEditor
+        title="Notes"
+        icon="📝"
+        role={role}
+        session={session}
+        preview={archived}
+        onLeavePreview={onLeave}
+      />,
+    );
+    return { session, onLeave };
+  }
+
+  it("shows the archived blocks instead of the live ones, with the warning and the metadata", () => {
+    renderPreview("EDITOR");
+    expect(screen.getByText("Viewing Version 4 · Read-only archive.")).toBeInTheDocument();
+    expect(screen.getByText("Live editing is suspended.")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Old text")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Live text")).not.toBeInTheDocument();
+    expect(screen.getByText(/^Version 4 · MANUAL · /)).toBeInTheDocument();
+    expect(screen.queryByText(/Active Sockets/)).not.toBeInTheDocument();
+  });
+
+  it("makes the archive read-only for an editor too: no insert buttons, no operations", () => {
+    const { session } = renderPreview("EDITOR");
+    const field = screen.getByDisplayValue("Old text");
+    expect(field).toHaveAttribute("readonly");
+    fireEvent.change(field, { target: { value: "Changed" } });
+    expect(session.insertText).not.toHaveBeenCalled();
+    expect(session.deleteText).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Add block|Insert/i })).not.toBeInTheDocument();
+  });
+
+  it("tells a viewer who previews both things: the archive and the read-only role", () => {
+    renderPreview("VIEWER");
+    expect(screen.getAllByText(/Read-only/).length).toBe(2); // the archive banner and the viewer one
+    expect(screen.getByText("Viewing Version 4 · Read-only archive.")).toBeInTheDocument();
+  });
+
+  it("goes back to the live document from the banner", () => {
+    const { onLeave } = renderPreview("EDITOR");
+    fireEvent.click(screen.getByRole("button", { name: "Back to live document" }));
+    expect(onLeave).toHaveBeenCalled();
+  });
+
+  it("shows the live blocks and the revision line when there is no preview", () => {
+    renderEditor(fakeSession());
+    expect(screen.queryByText(/Read-only archive/)).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("Hello")).toBeInTheDocument();
   });
 });

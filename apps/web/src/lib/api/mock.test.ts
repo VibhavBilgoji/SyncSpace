@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApi } from "./index";
 import { createMockApi } from "./mock";
-import { realAuth, realWorkspaces } from "./real";
+import { realAuth, realVersions, realWorkspaces } from "./real";
 
 describe("mock auth", () => {
   it("registers, normalizes the email and starts a session", async () => {
@@ -139,5 +139,99 @@ describe("mock documents", () => {
     await expect(api.documents.create("0".repeat(24), { title: "x" })).rejects.toMatchObject({
       status: 404,
     });
+  });
+});
+
+describe("mock versions", () => {
+  async function ready() {
+    const api = createMockApi();
+    await api.auth.register({ name: "Ada", email: "ada@example.com", password: "password1" });
+    return api;
+  }
+
+  it("needs a session", async () => {
+    const api = createMockApi();
+    await expect(api.versions.list("d")).rejects.toMatchObject({ status: 401 });
+    await expect(api.versions.create("d", { label: "x" })).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("saves named versions, lists them newest first and numbers them from 1", async () => {
+    const api = await ready();
+    const one = await api.versions.create("d", { label: "  First  " });
+    const two = await api.versions.create("d", { label: "Second" });
+    expect([one.version_number, two.version_number]).toEqual([1, 2]);
+    expect(one).toMatchObject({ change_type: "MANUAL", label: "First" });
+    const page = await api.versions.list("d");
+    expect(page.items.map((v) => v.version_number)).toEqual([2, 1]);
+    expect(page.next_cursor).toBeNull();
+    expect((await api.versions.list("other")).items).toEqual([]);
+  });
+
+  it("rejects a blank or over-long label with 422 details", async () => {
+    const api = await ready();
+    await expect(api.versions.create("d", { label: "   " })).rejects.toMatchObject({
+      status: 422,
+      details: { label: expect.any(String) },
+    });
+    await expect(api.versions.create("d", { label: "x".repeat(81) })).rejects.toMatchObject({
+      status: 422,
+    });
+  });
+
+  it("restores into a new RESTORE version and refuses an unknown number", async () => {
+    const api = await ready();
+    await api.versions.create("d", { label: "First" });
+    const { restore_version } = await api.versions.restore("d", 1);
+    expect(restore_version).toMatchObject({
+      version_number: 2,
+      change_type: "RESTORE",
+      restored_from: 1,
+      label: "Restored from Version 1",
+    });
+    await expect(api.versions.restore("d", 9)).rejects.toMatchObject({ status: 404 });
+    await expect(api.versions.get("d", 9)).rejects.toMatchObject({ status: 404 });
+    expect((await api.versions.get("d", 1)).version.version_number).toBe(1);
+  });
+
+  it("is picked per group by buildApi", () => {
+    expect(buildApi("").versions).toBe(realVersions);
+    expect(buildApi("versions").versions).not.toBe(realVersions);
+  });
+});
+
+describe("real versions", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stub(body: unknown, status = 200) {
+    const fn = vi.fn(() => Promise.resolve(Response.json(body, { status })));
+    vi.stubGlobal("fetch", fn);
+    return fn;
+  }
+
+  it("lists with the limit and cursor in the query, and without a query by default", async () => {
+    const fn = stub({ items: [], next_cursor: null });
+    await realVersions.list("d1");
+    await realVersions.list("d1", { limit: 50, cursor: "7" });
+    expect(fn.mock.calls.map((c) => (c as unknown[])[0])).toEqual([
+      "/api/v1/documents/d1/versions",
+      "/api/v1/documents/d1/versions?limit=50&cursor=7",
+    ]);
+  });
+
+  it("posts the label, reads one version and restores one", async () => {
+    const fn = stub({});
+    await realVersions.create("d1", { label: "Draft" });
+    await realVersions.get("d1", 3);
+    await realVersions.restore("d1", 3);
+    const calls = fn.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls[0]![0]).toBe("/api/v1/documents/d1/versions");
+    expect(calls[0]![1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ label: "Draft" }),
+    });
+    expect(calls[1]![0]).toBe("/api/v1/documents/d1/versions/3");
+    expect(calls[1]![1]).toMatchObject({ method: "GET" });
+    expect(calls[2]![0]).toBe("/api/v1/documents/d1/versions/3/restore");
+    expect(calls[2]![1]).toMatchObject({ method: "POST" });
   });
 });

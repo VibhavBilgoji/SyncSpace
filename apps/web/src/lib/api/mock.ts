@@ -3,6 +3,7 @@ import type {
   Document,
   DocumentSummary,
   User,
+  VersionSummary,
   Workspace,
   WorkspaceSummary,
 } from "@/types/generated";
@@ -20,6 +21,29 @@ export function createMockApi(): Api {
   let sessionUserId: string | null = null;
   let nextId = 1;
   const id = () => (nextId++).toString(16).padStart(24, "0");
+  const versionStore = new Map<string, Array<{ summary: VersionSummary }>>();
+  /** Newest first. */
+  const versionsOf = (docId: string) => versionStore.get(docId) ?? [];
+  function addVersion(
+    docId: string,
+    change_type: VersionSummary["change_type"],
+    label: string | null,
+    restored_from: number | null,
+  ): VersionSummary {
+    const existing = versionsOf(docId);
+    const user = users.find((u) => u.id === sessionUserId);
+    const summary: VersionSummary = {
+      version_number: (existing[0]?.summary.version_number ?? 0) + 1,
+      change_type,
+      label: label ?? (restored_from === null ? null : `Restored from Version ${restored_from}`),
+      restored_from,
+      restored_from_kept: restored_from === null ? null : true,
+      created_by: user ? { id: user.id, name: user.name } : null,
+      created_at: new Date().toISOString(),
+    };
+    versionStore.set(docId, [{ summary }, ...existing]);
+    return summary;
+  }
 
   return {
     auth: {
@@ -168,6 +192,37 @@ export function createMockApi(): Api {
         const index = documents.findIndex((d) => d.id === docId);
         if (index < 0) throw new ApiError(404, "NOT_FOUND", "not found");
         documents.splice(index, 1);
+      },
+    },
+    versions: {
+      async list(docId, { limit = 50 } = {}) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const all = versionsOf(docId);
+        return { items: all.slice(0, limit).map((v) => v.summary), next_cursor: null };
+      },
+      async create(docId, { label }) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const trimmed = label.trim();
+        if ([...trimmed].length < 1 || [...trimmed].length > 80) {
+          throw new ApiError(422, "VALIDATION", "validation failed", {
+            label: "label must be 1 to 80 characters",
+          });
+        }
+        return addVersion(docId, "MANUAL", trimmed, null);
+      },
+      async get(docId, number) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const found = versionsOf(docId).find((v) => v.summary.version_number === number);
+        if (!found) throw new ApiError(404, "NOT_FOUND", "not found");
+        return { version: found.summary, blocks: [] };
+      },
+      async restore(docId, number) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        if (!versionsOf(docId).some((v) => v.summary.version_number === number)) {
+          throw new ApiError(404, "NOT_FOUND", "not found");
+        }
+        const restore_version = addVersion(docId, "RESTORE", null, number);
+        return { restore_version, revision: restore_version.version_number };
       },
     },
   };

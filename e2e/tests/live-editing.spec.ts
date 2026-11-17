@@ -1,31 +1,5 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-
-/** Registers a fresh user in its own browser context and returns the signed-in page. */
-async function signUp(browser: Browser, label: string) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  const email = `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
-  await page.goto("/register");
-  await page.getByLabel("Name").fill(label);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: /create account/i }).click();
-  await page.waitForURL(/\/(w|onboarding)/);
-  return { context, page, email };
-}
-
-/** Adds `email` to the workspace through the API, as the signed-in owner. */
-async function addMember(
-  context: BrowserContext,
-  workspaceId: string,
-  email: string,
-  role: "EDITOR" | "VIEWER",
-) {
-  const response = await context.request.post(`/api/v1/workspaces/${workspaceId}/members`, {
-    data: { email, role },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
-}
+import { expect, test, type Page } from "@playwright/test";
+import { addMember, signUp } from "./helpers";
 
 test("two browsers edit one document live and a viewer cannot edit", async ({ browser }) => {
   const owner = await signUp(browser, "owner");
