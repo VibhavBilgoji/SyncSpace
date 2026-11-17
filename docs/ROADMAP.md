@@ -190,7 +190,7 @@ The deliverable and acceptance text is the original, except where it asks for te
 | 7.2 | SHOULD | Load test tool and results (a 60-second run) | Numbers recorded in `PROGRESS.md`; targets met or explained |
 | 7.3 | post-submission | Accessibility pass | e2e scenario 10 |
 | 7.4 | MUST, Tue evening (first deploy, moved up), redeploy Thu; hardening done (PR #21) | Dockerfile (multi-stage, distroless or debian-slim), deploy workflows, Render, Vercel and Atlas setup per `DEPLOYMENT.md` | Smoke test checklist in `DEPLOYMENT.md` §8 passes on the hosted URLs |
-| 7.5 | MUST, Thu | Seed script for the demo (workspace "Engineering Team", three members, documents and a board like the Figma frames) | Runs against a fresh database |
+| 7.5 | implemented, PR to open (Tue) | Seed script for the demo (workspace "Engineering Team", three members, documents and a board like the Figma frames) | Runs against a fresh database |
 
 ### Phase 8 (optional): several nodes with Redis (post-submission)
 

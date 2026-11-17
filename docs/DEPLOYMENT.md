@@ -208,7 +208,7 @@ ENTRYPOINT ["/server"]
 ## 9. Demo day checklist
 
 - Open the API URL and the app 5 minutes before presenting so the Render service is awake. The open WebSocket keeps it awake during the demo.
-- Run the seed script against the production database the day before (`cargo run -p server --bin seed -- --workspace "Engineering Team"`), so the screens look like the Figma frames.
+- Run the seed script against the production database the day before, so the screens look like the Figma frames: `MONGODB_URI="<the Atlas URI>" MONGODB_DB=syncspace cargo run -p server --bin seed -- --workspace "Engineering Team"` (it reads only these two variables, from the environment or a `.env`; no server secrets). It creates the workspace `engineering-team` with three accounts (`vibhav@syncspace.demo` ADMIN and owner, `sparsh@syncspace.demo` EDITOR, `suyash@syncspace.demo` VIEWER), three documents with two saved versions each, a board "Sprint 12" with nine tasks in the five columns and the audit rows those actions leave. It **prints a random password once** for the new accounts (or use `--password` or `SEED_PASSWORD`): write it down. Running it again for the same workspace changes nothing and says so; a second workspace name reuses the three accounts and keeps their passwords.
 - Have the load-test numbers and a short screen recording ready in case the network fails.
 - Log in as the three team members in three browser profiles.
 
