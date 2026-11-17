@@ -14,7 +14,7 @@ function SectionLabel({ children }: { children: string }) {
   return <h2 className="px-2 pt-4 pb-1 text-micro text-text-faint uppercase">{children}</h2>;
 }
 
-/** Frame 05 onwards: 240 px sidebar. Boards and the document list are filled by later tasks. */
+/** Frame 05 onwards: 240 px sidebar. The lists of documents and boards are pages of their own. */
 export function AppSidebar() {
   const workspace = useWorkspace();
   const { session, signOut } = useSession();
@@ -58,7 +58,9 @@ export function AppSidebar() {
         </NavItem>
 
         <SectionLabel>Boards</SectionLabel>
-        <p className="px-2 text-ui-sm text-text-faint">No boards yet</p>
+        <NavItem href={`${base}/boards`} active={pathname.startsWith(`${base}/boards`)}>
+          All boards
+        </NavItem>
 
         <SectionLabel>System</SectionLabel>
         {isAdmin && (

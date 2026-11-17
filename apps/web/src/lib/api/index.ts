@@ -1,5 +1,5 @@
 import { createMockApi } from "./mock";
-import { realAuth, realDocuments, realVersions, realWorkspaces } from "./real";
+import { realAuth, realBoards, realDocuments, realVersions, realWorkspaces } from "./real";
 import type { Api } from "./types";
 
 /**
@@ -20,10 +20,11 @@ export function buildApi(mocks: string): Api {
     workspaces: mock && mocked.has("workspaces") ? mock.workspaces : realWorkspaces,
     documents: mock && mocked.has("documents") ? mock.documents : realDocuments,
     versions: mock && mocked.has("versions") ? mock.versions : realVersions,
+    boards: mock && mocked.has("boards") ? mock.boards : realBoards,
   };
 }
 
 export const api: Api = buildApi(process.env.NEXT_PUBLIC_API_MOCKS ?? "");
 
 export { ApiError, isApiError } from "./errors";
-export type { Api, AuthApi, DocumentsApi, VersionsApi, WorkspacesApi } from "./types";
+export type { Api, AuthApi, BoardsApi, DocumentsApi, VersionsApi, WorkspacesApi } from "./types";

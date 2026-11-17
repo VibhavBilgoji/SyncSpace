@@ -1,7 +1,9 @@
 import { isValidSlug } from "@/lib/slug";
 import type {
+  Board,
   Document,
   DocumentSummary,
+  Task,
   User,
   VersionSummary,
   Workspace,
@@ -21,6 +23,24 @@ export function createMockApi(): Api {
   let sessionUserId: string | null = null;
   let nextId = 1;
   const id = () => (nextId++).toString(16).padStart(24, "0");
+  const boardStore: Board[] = [];
+  const taskStore: Task[] = [];
+  const STATUSES = ["BACKLOG", "TODO", "IN_PROGRESS", "REVIEW", "DONE"] as const;
+  const countsOf = (boardId: string): Board["task_counts"] => {
+    const n = (status: Task["status"]) =>
+      taskStore.filter((t) => t.board_id === boardId && t.status === status).length;
+    return {
+      backlog: n("BACKLOG"),
+      todo: n("TODO"),
+      in_progress: n("IN_PROGRESS"),
+      review: n("REVIEW"),
+      done: n("DONE"),
+    };
+  };
+  const column = (boardId: string, status: Task["status"], except?: string) =>
+    taskStore
+      .filter((t) => t.board_id === boardId && t.status === status && t.id !== except)
+      .sort((a, b) => a.order - b.order);
   const versionStore = new Map<string, Array<{ summary: VersionSummary }>>();
   /** Newest first. */
   const versionsOf = (docId: string) => versionStore.get(docId) ?? [];
@@ -93,6 +113,20 @@ export function createMockApi(): Api {
       async list() {
         if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
         return [...workspaces].sort((a, b) => a.name.localeCompare(b.name));
+      },
+      async members() {
+        const user = users.find((u) => u.id === sessionUserId);
+        if (!user) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        return [
+          {
+            user_id: user.id,
+            name: user.name,
+            email: user.email,
+            role: "ADMIN" as const,
+            joined_at: new Date().toISOString(),
+            is_owner: true,
+          },
+        ];
       },
       async create({ name, slug }) {
         if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
@@ -192,6 +226,98 @@ export function createMockApi(): Api {
         const index = documents.findIndex((d) => d.id === docId);
         if (index < 0) throw new ApiError(404, "NOT_FOUND", "not found");
         documents.splice(index, 1);
+      },
+    },
+    boards: {
+      async list(workspaceId) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        return boardStore
+          .filter((b) => b.workspace_id === workspaceId)
+          .map((b) => ({ ...b, task_counts: countsOf(b.id) }));
+      },
+      async create(workspaceId, { name }) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const trimmed = name.trim();
+        if ([...trimmed].length < 1 || [...trimmed].length > 60) {
+          throw new ApiError(422, "VALIDATION", "validation failed", {
+            name: "name must be 1 to 60 characters",
+          });
+        }
+        const board: Board = {
+          id: id(),
+          workspace_id: workspaceId,
+          name: trimmed,
+          task_counts: countsOf(""),
+          created_at: new Date().toISOString(),
+        };
+        boardStore.push(board);
+        return board;
+      },
+      async tasks(boardId) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        if (!boardStore.some((b) => b.id === boardId))
+          throw new ApiError(404, "NOT_FOUND", "board not found");
+        return taskStore
+          .filter((t) => t.board_id === boardId)
+          .sort(
+            (a, b) => STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status) || a.order - b.order,
+          );
+      },
+      async createTask(boardId, input) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        if (!boardStore.some((b) => b.id === boardId))
+          throw new ApiError(404, "NOT_FOUND", "board not found");
+        const title = input.title.trim();
+        if ([...title].length < 1 || [...title].length > 200) {
+          throw new ApiError(422, "VALIDATION", "validation failed", {
+            title: "title must be 1 to 200 characters",
+          });
+        }
+        const status = input.status ?? "BACKLOG";
+        const last = column(boardId, status).at(-1);
+        const now = new Date().toISOString();
+        const task: Task = {
+          id: id(),
+          board_id: boardId,
+          title,
+          description: input.description?.trim() ?? "",
+          status,
+          priority: input.priority ?? "MEDIUM",
+          assignee_ids: input.assignee_ids ?? [],
+          tags: (input.tags ?? []).map((t) => t.trim().toLowerCase()),
+          order: (last?.order ?? 0) + 1,
+          created_at: now,
+          updated_at: now,
+        };
+        taskStore.push(task);
+        return task;
+      },
+      async updateTask(taskId, input) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const task = taskStore.find((t) => t.id === taskId);
+        if (!task) throw new ApiError(404, "NOT_FOUND", "task not found");
+        if (input.title !== undefined) task.title = input.title.trim();
+        if (input.description !== undefined) task.description = input.description.trim();
+        if (input.priority !== undefined) task.priority = input.priority;
+        if (input.assignee_ids !== undefined) task.assignee_ids = input.assignee_ids;
+        if (input.tags !== undefined) task.tags = input.tags.map((t) => t.trim().toLowerCase());
+        task.updated_at = new Date().toISOString();
+        return task;
+      },
+      async moveTask(taskId, { to_status }) {
+        if (!sessionUserId) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
+        const task = taskStore.find((t) => t.id === taskId);
+        if (!task) throw new ApiError(404, "NOT_FOUND", "task not found");
+        const last = column(task.board_id, to_status, task.id).at(-1);
+        task.status = to_status;
+        task.order = (last?.order ?? 0) + 1;
+        task.updated_at = new Date().toISOString();
+        return task;
+      },
+      async removeTask(taskId) {
+        const index = taskStore.findIndex((t) => t.id === taskId);
+        if (index < 0) throw new ApiError(404, "NOT_FOUND", "task not found");
+        taskStore.splice(index, 1);
       },
     },
     versions: {

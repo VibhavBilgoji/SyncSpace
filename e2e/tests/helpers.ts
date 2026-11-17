@@ -27,8 +27,8 @@ export async function addMember(
   expect(response.ok(), await response.text()).toBeTruthy();
 }
 
-/** A new user creates a workspace (through onboarding) and a document; returns both ids and the doc URL. */
-export async function ownerWithDocument(browser: Browser, title: string) {
+/** A new user creates a workspace through onboarding; returns the owner and the workspace ids. */
+export async function ownerWorkspace(browser: Browser) {
   const owner = await signUp(browser, "owner");
   await owner.page.waitForURL(/\/onboarding/);
   const slug = `e2e-${Date.now().toString(36)}`;
@@ -42,12 +42,17 @@ export async function ownerWithDocument(browser: Browser, title: string) {
     (w) => w.slug === slug,
   )?.id;
   expect(workspaceId).toBeTruthy();
+  return { owner, slug, workspaceId: workspaceId! };
+}
 
+/** A workspace as above, with one document the owner has opened. */
+export async function ownerWithDocument(browser: Browser, title: string) {
+  const { owner, slug, workspaceId } = await ownerWorkspace(browser);
   await owner.page.getByRole("button", { name: "Create document" }).click();
   await owner.page.getByLabel("Title").fill(title);
   await owner.page.getByRole("dialog").getByRole("button", { name: "Create document" }).click();
   await owner.page.waitForURL(/\/docs\/[0-9a-f]{24}$/);
-  return { owner, slug, workspaceId: workspaceId!, docUrl: owner.page.url() };
+  return { owner, slug, workspaceId, docUrl: owner.page.url() };
 }
 
 /** Opens a document and waits until its socket is up. */

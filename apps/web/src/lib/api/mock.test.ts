@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApi } from "./index";
 import { createMockApi } from "./mock";
-import { realAuth, realVersions, realWorkspaces } from "./real";
+import { realAuth, realBoards, realVersions, realWorkspaces } from "./real";
 
 describe("mock auth", () => {
   it("registers, normalizes the email and starts a session", async () => {
@@ -233,5 +233,125 @@ describe("real versions", () => {
     expect(calls[1]![1]).toMatchObject({ method: "GET" });
     expect(calls[2]![0]).toBe("/api/v1/documents/d1/versions/3/restore");
     expect(calls[2]![1]).toMatchObject({ method: "POST" });
+  });
+});
+
+describe("mock boards", () => {
+  async function ready() {
+    const api = createMockApi();
+    await api.auth.register({ name: "Ada", email: "ada@example.com", password: "password1" });
+    const workspace = await api.workspaces.create({ name: "Eng", slug: "eng" });
+    return { api, workspace };
+  }
+
+  it("needs a session", async () => {
+    const api = createMockApi();
+    await expect(api.boards.list("w")).rejects.toMatchObject({ status: 401 });
+    await expect(api.boards.create("w", { name: "x" })).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("creates boards with a trimmed name and lists them with counts", async () => {
+    const { api, workspace } = await ready();
+    const board = await api.boards.create(workspace.id, { name: "  Sprint  " });
+    expect(board.name).toBe("Sprint");
+    await api.boards.createTask(board.id, { title: "One", status: "TODO" });
+    await api.boards.createTask(board.id, { title: "Two", status: "TODO" });
+    await api.boards.createTask(board.id, { title: "Three", status: "DONE" });
+    const [listed] = await api.boards.list(workspace.id);
+    expect(listed?.task_counts).toEqual({
+      backlog: 0,
+      todo: 2,
+      in_progress: 0,
+      review: 0,
+      done: 1,
+    });
+    await expect(api.boards.create(workspace.id, { name: " " })).rejects.toMatchObject({
+      status: 422,
+      details: { name: expect.any(String) },
+    });
+    await expect(api.boards.create(workspace.id, { name: "x".repeat(61) })).rejects.toMatchObject({
+      status: 422,
+    });
+  });
+
+  it("creates tasks at the end of their column with the server's defaults", async () => {
+    const { api, workspace } = await ready();
+    const board = await api.boards.create(workspace.id, { name: "B" });
+    const first = await api.boards.createTask(board.id, { title: " First " });
+    const second = await api.boards.createTask(board.id, { title: "Second" });
+    expect(first).toMatchObject({
+      title: "First",
+      status: "BACKLOG",
+      priority: "MEDIUM",
+      order: 1,
+    });
+    expect(second.order).toBe(2);
+    await expect(api.boards.createTask(board.id, { title: "" })).rejects.toMatchObject({
+      status: 422,
+    });
+    await expect(api.boards.createTask("nope", { title: "x" })).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("lists tasks by column then position, moves to the end of a column, edits and deletes", async () => {
+    const { api, workspace } = await ready();
+    const board = await api.boards.create(workspace.id, { name: "B" });
+    const a = await api.boards.createTask(board.id, { title: "A", status: "DONE" });
+    const b = await api.boards.createTask(board.id, { title: "B", status: "TODO" });
+    await api.boards.createTask(board.id, { title: "C", status: "TODO" });
+    expect((await api.boards.tasks(board.id)).map((t) => t.title)).toEqual(["B", "C", "A"]);
+
+    const moved = await api.boards.moveTask(b.id, { to_status: "DONE" });
+    expect(moved).toMatchObject({ status: "DONE", order: 2 });
+    expect((await api.boards.tasks(board.id)).map((t) => t.title)).toEqual(["C", "A", "B"]);
+
+    const edited = await api.boards.updateTask(a.id, { title: " Renamed ", tags: [" API "] });
+    expect(edited).toMatchObject({ title: "Renamed", tags: ["api"] });
+    await api.boards.removeTask(a.id);
+    expect((await api.boards.tasks(board.id)).map((t) => t.title)).toEqual(["C", "B"]);
+    await expect(api.boards.removeTask(a.id)).rejects.toMatchObject({ status: 404 });
+    await expect(api.boards.moveTask("nope", { to_status: "TODO" })).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("lists the signed-in user as the only member, and is picked per group", async () => {
+    const { api, workspace } = await ready();
+    const members = await api.workspaces.members(workspace.id);
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({ name: "Ada", role: "ADMIN", is_owner: true });
+    expect(buildApi("").boards).toBe(realBoards);
+    expect(buildApi("boards").boards).not.toBe(realBoards);
+  });
+});
+
+describe("real boards", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("calls the documented endpoints with the documented bodies", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json({})));
+    vi.stubGlobal("fetch", fetchMock);
+    await realBoards.list("w1");
+    await realBoards.create("w1", { name: "Sprint" });
+    await realBoards.tasks("b1");
+    await realBoards.createTask("b1", { title: "T" });
+    await realBoards.updateTask("t1", { title: "U" });
+    await realBoards.moveTask("t1", { to_status: "DONE", before_id: "t0" });
+    await realBoards.removeTask("t1");
+    await realWorkspaces.members("w1");
+    const calls = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).map(
+      ([url, init]) => `${init.method} ${url}${init.body ? ` ${init.body}` : ""}`,
+    );
+    expect(calls).toEqual([
+      "GET /api/v1/workspaces/w1/boards",
+      'POST /api/v1/workspaces/w1/boards {"name":"Sprint"}',
+      "GET /api/v1/boards/b1/tasks",
+      'POST /api/v1/boards/b1/tasks {"title":"T"}',
+      'PATCH /api/v1/tasks/t1 {"title":"U"}',
+      'PATCH /api/v1/tasks/t1/move {"to_status":"DONE","before_id":"t0"}',
+      "DELETE /api/v1/tasks/t1",
+      "GET /api/v1/workspaces/w1/members",
+    ]);
   });
 });
