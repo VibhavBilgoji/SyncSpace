@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { ApiError } from "@/lib/api/errors";
+import { useReportConnection } from "@/lib/connection";
+import type { ConnectionState } from "@/components/shell/ConnectionPill";
+import { retryDelay } from "./backoff";
 import { useSession } from "@/lib/session";
 import init, {
   WasmDocument,
@@ -59,10 +63,24 @@ export function randomBlockId(): string {
 }
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080";
-const RETRY_MS = [500, 1000, 2000, 4000];
 /** Presence is announced this often, and a peer not heard from for three times as long is gone. */
 const PRESENCE_MS = 10_000;
 const AWARENESS_TAG = 1; // the y-sync message type of an awareness frame
+
+/** What the sidebar pill shows for a session status. */
+export function connectionOf(status: SessionStatus): ConnectionState {
+  switch (status) {
+    case "live":
+      return "connected";
+    case "reconnecting":
+      return "reconnecting";
+    case "loading":
+    case "connecting":
+      return "connecting";
+    default:
+      return "disconnected";
+  }
+}
 
 function readBlocks(doc: WasmDocument): Block[] {
   return JSON.parse(doc.blocksJson()) as Block[];
@@ -90,6 +108,7 @@ export function useDocumentSession(docId: string): DocumentSession {
   }, [myName]);
   const docRef = useRef<WasmDocument | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  useReportConnection(connectionOf(status));
 
   useEffect(() => {
     let cancelled = false;
@@ -122,7 +141,7 @@ export function useDocumentSession(docId: string): DocumentSession {
     function scheduleRetry() {
       if (cancelled) return;
       setStatus("reconnecting");
-      const wait = RETRY_MS[Math.min(attempt, RETRY_MS.length - 1)] ?? 4000;
+      const wait = retryDelay(attempt);
       attempt += 1;
       retry = setTimeout(() => void connect(), wait);
     }
@@ -135,8 +154,11 @@ export function useDocumentSession(docId: string): DocumentSession {
         const { ticket } = await api.auth.wsTicket({ scope: "doc", id: docId });
         if (cancelled) return;
         ws = new WebSocket(`${WS_BASE}/ws/v1/docs/${docId}?ticket=${encodeURIComponent(ticket)}`);
-      } catch {
-        scheduleRetry();
+      } catch (error) {
+        if (cancelled) return;
+        // An expired session cannot get a ticket: retrying would only repeat the 401.
+        if (error instanceof ApiError && error.status === 401) setStatus("unauthorized");
+        else scheduleRetry();
         return;
       }
       ws.binaryType = "arraybuffer";
