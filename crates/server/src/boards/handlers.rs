@@ -23,6 +23,7 @@ use crate::db::boards::{self, BoardRecord};
 use crate::db::tasks::{self, TaskRecord};
 use crate::error::ApiError;
 use crate::extract::ApiJson;
+use crate::hub::frames::{BoardEventKind, ServerFrame};
 use crate::rbac::{Granted, Role, parse_id, require_role};
 
 fn board_not_found() -> ApiError {
@@ -72,6 +73,21 @@ async fn require_task(
     Ok((record, granted))
 }
 
+/// Tells the open workspace sockets that a task changed. Nothing is stored: a page that was not
+/// connected loads the current state over REST.
+fn publish_task(state: &AppState, workspace_id: ObjectId, kind: BoardEventKind, task: &Task) {
+    state.hub.publish(
+        workspace_id,
+        &ServerFrame::BoardEvent {
+            board_id: task.board_id.clone(),
+            kind,
+            task: Some(task.clone()),
+            board: None,
+            status: None,
+        },
+    );
+}
+
 pub async fn list_boards(
     State(state): State<AppState>,
     user: AuthUser,
@@ -107,7 +123,18 @@ pub async fn create_board(
         created_at: DateTime::now(),
     };
     boards::insert(&state.db, &record).await?;
-    Ok((StatusCode::CREATED, Json(board_response(&record, None))).into_response())
+    let board = board_response(&record, None);
+    state.hub.publish(
+        workspace_id,
+        &ServerFrame::BoardEvent {
+            board_id: board.id.clone(),
+            kind: BoardEventKind::BoardCreated,
+            task: None,
+            board: Some(board.clone()),
+            status: None,
+        },
+    );
+    Ok((StatusCode::CREATED, Json(board)).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,7 +224,14 @@ pub async fn create_task(
         },
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(task_response(&record))).into_response())
+    let task = task_response(&record);
+    publish_task(
+        &state,
+        record.workspace_id,
+        BoardEventKind::TaskCreated,
+        &task,
+    );
+    Ok((StatusCode::CREATED, Json(task)).into_response())
 }
 
 pub async fn patch_task(
@@ -234,7 +268,14 @@ pub async fn patch_task(
     let updated = tasks::update_fields(&state.db, id, set)
         .await?
         .ok_or_else(task_not_found)?;
-    Ok(Json(task_response(&updated)))
+    let task = task_response(&updated);
+    publish_task(
+        &state,
+        updated.workspace_id,
+        BoardEventKind::TaskUpdated,
+        &task,
+    );
+    Ok(Json(task))
 }
 
 /// Finds `hex` among the tasks of the target column; anything else is a 422 on `field`.
@@ -286,6 +327,7 @@ pub async fn move_task(
     let mut orders: Vec<f64> = column.iter().map(|slot| slot.order).collect();
     let pick = |orders: &[f64], index: Option<usize>| index.and_then(|i| orders.get(i).copied());
     let mut order = position_between(pick(&orders, above), pick(&orders, below));
+    let renumbered = order.is_none();
     if order.is_none() {
         // The neighbours are too close to split: renumber the column 1.0, 2.0, ... and ask again.
         let ids: Vec<ObjectId> = column.iter().map(|slot| slot.id).collect();
@@ -310,7 +352,22 @@ pub async fn move_task(
         },
     )
     .await?;
-    Ok(Json(task_response(&updated)))
+    if renumbered {
+        // The positions of the whole column changed: clients reload it.
+        state.hub.publish(
+            task.workspace_id,
+            &ServerFrame::BoardEvent {
+                board_id: task.board_id.to_hex(),
+                kind: BoardEventKind::ColumnRenumbered,
+                task: None,
+                board: None,
+                status: Some(to),
+            },
+        );
+    }
+    let moved = task_response(&updated);
+    publish_task(&state, task.workspace_id, BoardEventKind::TaskMoved, &moved);
+    Ok(Json(moved))
 }
 
 pub async fn delete_task(
@@ -323,6 +380,7 @@ pub async fn delete_task(
     if !tasks::delete(&state.db, id).await? {
         return Err(task_not_found());
     }
+    let gone = task_response(&task);
     audit::record(
         &state.db,
         task.workspace_id,
@@ -333,5 +391,11 @@ pub async fn delete_task(
         },
     )
     .await?;
+    publish_task(
+        &state,
+        task.workspace_id,
+        BoardEventKind::TaskDeleted,
+        &gone,
+    );
     Ok(StatusCode::NO_CONTENT)
 }

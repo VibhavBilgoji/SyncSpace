@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ApiError } from "@/lib/api/errors";
@@ -18,6 +18,18 @@ const api = vi.hoisted(() => ({
   workspaces: { members: vi.fn() },
 }));
 
+const socket = vi.hoisted(() => ({
+  handlers: null as null | {
+    onFrame(frame: unknown): void;
+    onConnected?(again: boolean): void;
+  },
+}));
+vi.mock("@/lib/workspaceSocket", () => ({
+  useWorkspaceSocket: (_id: string, handlers: NonNullable<typeof socket.handlers>) => {
+    socket.handlers = handlers;
+    return "live";
+  },
+}));
 vi.mock("next/navigation", () => ({ useParams: () => ({ boardId: "board1", slug: "eng" }) }));
 vi.mock("@/components/shell/WorkspaceShell", () => ({
   useWorkspace: () => ({ id: "ws1", slug: "eng", name: "Engineering", role: ctx.role }),
@@ -100,6 +112,7 @@ const cardsIn = (label: string) =>
     .map((b) => b.getAttribute("aria-label")?.replace("Open task ", ""));
 
 beforeEach(() => {
+  socket.handlers = null;
   ctx.role = "EDITOR";
   for (const fn of Object.values(api.boards)) fn.mockReset();
   api.workspaces.members.mockReset();
@@ -460,5 +473,97 @@ describe("deleting a task (frame 32)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete task" }));
     expect(await screen.findByText(/Could not delete the task/)).toBeInTheDocument();
     expect(cardsIn("Done")).toEqual(["Ship it"]);
+  });
+});
+
+describe("live changes from the workspace socket", () => {
+  const event = (kind: string, extra: Record<string, unknown> = {}) => ({
+    type: "BOARD_EVENT",
+    board_id: "board1",
+    kind,
+    ...extra,
+  });
+  const emit = (frame: unknown) => act(() => socket.handlers?.onFrame(frame));
+
+  it("shows a task someone else created, in its column and at the right place", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    emit(
+      event("TASK_CREATED", {
+        task: task("n", { title: "From a colleague", status: "TODO", order: 1.5 }),
+      }),
+    );
+    expect(cardsIn("To do")).toEqual(["Build the API", "From a colleague", "Review the API"]);
+    expect(within(column("To do")).getByLabelText("3 tasks")).toBeInTheDocument();
+  });
+
+  it("applies an edit to a task that is on the board", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    emit(
+      event("TASK_UPDATED", { task: { ...tasks[1], title: "Build the API v2", priority: "LOW" } }),
+    );
+    expect(cardsIn("To do")).toEqual(["Build the API v2", "Review the API"]);
+    const card = screen
+      .getByRole("button", { name: "Open task Build the API v2" })
+      .closest("li") as HTMLElement;
+    expect(within(card).getByText("Low")).toBeInTheDocument();
+  });
+
+  it("moves a card to the column and place another user moved it to, without a reload", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    emit(event("TASK_MOVED", { task: { ...tasks[1], status: "REVIEW", order: 1 } }));
+    expect(cardsIn("To do")).toEqual(["Review the API"]);
+    expect(cardsIn("Review")).toEqual(["Build the API"]);
+    expect(api.boards.tasks).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes a task someone else deleted", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    emit(event("TASK_DELETED", { task: tasks[3] }));
+    expect(cardsIn("Done")).toEqual([]);
+    expect(within(column("Done")).getByText("No tasks")).toBeInTheDocument();
+  });
+
+  it("ignores events of other boards, board creations and malformed events", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    emit({
+      ...event("TASK_CREATED", { task: task("x", { title: "Elsewhere" }) }),
+      board_id: "other",
+    });
+    emit(event("BOARD_CREATED", { board: { ...board, id: "new" } }));
+    emit(event("TASK_CREATED"));
+    emit(event("TASK_DELETED"));
+    emit({ type: "PRESENCE_COUNT", active_sockets: 2 });
+    expect(cardsIn("To do")).toEqual(["Build the API", "Review the API"]);
+    expect(screen.queryByText("Elsewhere")).not.toBeInTheDocument();
+  });
+
+  it("loads the tasks again after a renumbered column, and whenever the socket connects", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    api.boards.tasks.mockResolvedValue([
+      ...tasks,
+      task("late", { title: "Missed event", status: "REVIEW" }),
+    ]);
+    emit(event("COLUMN_RENUMBERED", { status: "TODO" }));
+    expect(
+      await screen.findByRole("button", { name: "Open task Missed event" }),
+    ).toBeInTheDocument();
+    const calls = api.boards.tasks.mock.calls.length;
+    act(() => socket.handlers?.onConnected?.(true));
+    await waitFor(() => expect(api.boards.tasks.mock.calls.length).toBe(calls + 1));
+  });
+
+  it("applies the same event twice without duplicating the card (our own change comes back)", async () => {
+    renderBoard();
+    await screen.findByRole("heading", { name: "Sprint 12" });
+    const created = task("n", { title: "Once", status: "BACKLOG", order: 2 });
+    emit(event("TASK_CREATED", { task: created }));
+    emit(event("TASK_CREATED", { task: created }));
+    expect(cardsIn("Backlog")).toEqual(["Write the plan", "Once"]);
   });
 });

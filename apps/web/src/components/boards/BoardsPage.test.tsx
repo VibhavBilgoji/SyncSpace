@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/errors";
 import type { Board } from "@/types/generated";
@@ -10,6 +10,13 @@ const ctx = vi.hoisted(() => ({
 }));
 const api = vi.hoisted(() => ({ boards: { list: vi.fn(), create: vi.fn() } }));
 
+const socket = vi.hoisted(() => ({ onFrame: null as null | ((frame: unknown) => void) }));
+vi.mock("@/lib/workspaceSocket", () => ({
+  useWorkspaceSocket: (_id: string, handlers: { onFrame(frame: unknown): void }) => {
+    socket.onFrame = handlers.onFrame;
+    return "live";
+  },
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: ctx.push }) }));
 vi.mock("@/components/shell/WorkspaceShell", () => ({
   useWorkspace: () => ({ id: "ws1", slug: "eng", name: "Engineering", role: ctx.role }),
@@ -146,5 +153,26 @@ describe("Create board (frame 27a)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(api.boards.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("live changes", () => {
+  it("shows a board someone else created, and refreshed task counts", async () => {
+    render(<BoardsPage />);
+    await screen.findByRole("link", { name: /Sprint 12/ });
+    api.boards.list.mockResolvedValue([
+      board("b1", "Sprint 12", { todo: 5 }),
+      board("b4", "Brand new board"),
+    ]);
+    act(() => socket.onFrame?.({ type: "BOARD_EVENT", board_id: "b4", kind: "BOARD_CREATED" }));
+    expect(await screen.findByRole("link", { name: /Brand new board/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Sprint 12/ })).toHaveTextContent("5 tasks");
+  });
+
+  it("ignores frames that are not board events", async () => {
+    render(<BoardsPage />);
+    await screen.findByRole("link", { name: /Sprint 12/ });
+    act(() => socket.onFrame?.({ type: "PRESENCE_COUNT", active_sockets: 3 }));
+    expect(api.boards.list).toHaveBeenCalledTimes(1);
   });
 });

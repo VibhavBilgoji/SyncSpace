@@ -86,11 +86,28 @@ test("create a board and tasks, move them with the buttons and the dropdown, del
   await expect(viewer.page.getByRole("dialog").getByRole("button", { name: "Delete" })).toHaveCount(0);
   await viewer.page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
 
-  // The viewer picks up the owner's next change when the window gets focus again.
+  // Live: a task moved in one browser appears in the other without a reload or a focus.
   await owner.page.getByRole("button", { name: "Move Build the REST API to Done" }).click();
   await expect(cards(owner.page, "Done")).toHaveCount(1);
-  await viewer.page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(cards(viewer.page, "Done")).toHaveCount(1);
+  await expect(cards(viewer.page, "Review")).toHaveCount(0);
+  await expect(cards(viewer.page, "Done").first()).toHaveAccessibleName("Open task Build the REST API");
+
+  // Live: a task created in one browser shows up in the other, in its column.
+  await owner.page.getByRole("button", { name: "Add task to Review" }).click();
+  await owner.page.getByRole("dialog").getByLabel("Title").fill("Seen live");
+  await owner.page.getByRole("dialog").getByRole("button", { name: "Create task" }).click();
+  await expect(cards(viewer.page, "Review")).toHaveCount(1);
+  await expect(cards(viewer.page, "Review").first()).toHaveAccessibleName("Open task Seen live");
+
+  // Live: an edit shows up too, and so does a deletion.
+  await owner.page.getByRole("button", { name: "Open task Seen live" }).click();
+  await owner.page.getByRole("dialog").getByLabel("Title").fill("Seen live, edited");
+  await owner.page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(viewer.page.getByRole("button", { name: "Open task Seen live, edited" })).toBeVisible();
+  await owner.page.getByRole("button", { name: "Open task Seen live, edited" }).click();
+  await owner.page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await owner.page.getByRole("dialog").getByRole("button", { name: "Delete task" }).click();
   await expect(cards(viewer.page, "Review")).toHaveCount(0);
 
   // Delete asks first, then removes the task for everyone.

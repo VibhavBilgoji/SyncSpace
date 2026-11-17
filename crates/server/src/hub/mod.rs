@@ -13,6 +13,8 @@ pub mod limits;
 pub mod room;
 pub mod snapshot;
 pub mod socket;
+pub mod workspace;
+pub mod workspace_socket;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -109,6 +111,7 @@ pub struct Hub {
     pub tickets: TicketStore,
     pub metrics: Arc<Metrics>,
     rooms: Mutex<HashMap<ObjectId, Arc<OnceCell<Arc<DocRoom>>>>>,
+    workspaces: Mutex<HashMap<ObjectId, Arc<workspace::WorkspaceRoom>>>,
     next_connection: AtomicU64,
 }
 
@@ -119,6 +122,7 @@ impl Hub {
             tickets: TicketStore::default(),
             metrics: Arc::new(Metrics::default()),
             rooms: Mutex::new(HashMap::new()),
+            workspaces: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
         }
     }
@@ -295,10 +299,16 @@ impl Hub {
                     reason: "server shutting down",
                 });
             }
+            for room in self.workspace_room_list() {
+                room.broadcast(Outgoing::Close {
+                    code: CLOSE_GOING_AWAY,
+                    reason: "server shutting down",
+                });
+            }
         }
     }
 
-    /// Closes every open document socket of `user` in `workspace`. The browser reconnects with a
+    /// Closes every open document and workspace socket of `user` in `workspace`. The browser reconnects with a
     /// fresh ticket, which is checked against the membership as it is now (ADR-013: the role is
     /// read at connect, so this is how a change reaches an open page).
     pub fn close_user(&self, workspace: ObjectId, user: ObjectId, code: u16, reason: &'static str) {
@@ -307,6 +317,8 @@ impl Hub {
                 room.broadcast(Outgoing::CloseUser { user, code, reason });
             }
         }
+        // The workspace sockets too: a removed member must stop hearing about the workspace.
+        self.close_user_in_workspace(workspace, user, code, reason);
     }
 
     /// The document was deleted: close every socket on it with 4004 and forget the room.

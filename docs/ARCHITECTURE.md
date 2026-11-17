@@ -135,6 +135,7 @@ JWT expiry closes sockets with 4001 at the next frame or ping. The client keeps 
 ## 4. Concurrency rules
 
 - Each `DocRoom` holds `Arc<Mutex<Doc>>` (or a single-task actor). Never hold the guard across `.await`. Prefer an actor per room (`mpsc` channel) if lock contention shows up in the load test.
+- The workspace socket has its own rooms (`hub::workspace`, one per workspace with an open socket, forgotten with the last socket) and the same channel capacity; board handlers call `Hub::publish` after a change has been stored and audited.
 - Broadcast with `tokio::sync::broadcast` per room, capacity 512 messages (`HubConfig::broadcast_capacity`, at least 4 times the update burst of 120, because a connection also queues an echo of every update it sends); slow consumers that lag are disconnected with 1008 and reconnect.
 - `version_number` allocation uses `findOneAndUpdate($inc next_version)`.
 - A restore and a snapshot in the same room are serialised through the room.
