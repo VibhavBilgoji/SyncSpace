@@ -87,14 +87,14 @@ The day boundaries also move, because a day cannot hold 20 hours: the editor (2.
 
 In package C, 6.1 (the audit endpoint, 1.5 h) is still built and tested, because the audit rows already written by 1.3 need a way to be read; it is the first item to drop if Thursday runs late.
 
-**Decision (Tuesday 17 November, evening): package D, no further cuts.** The work is ahead of the plan (2.1 to 2.6, FR11, 7.4 hardening, 3.1 and 4.1 to 4.4 are merged), so none of K1 to K6 is applied beyond what was already built (K1 and the simple live role change). Kanban, the members and audit screens, the versions preview mode and the seed stay in. The first deploy moves up to today.
+**Decision (Tuesday 17 November, evening): package D.** Ahead of plan, so nothing built is removed (K1 and the simple live role change stay as built; the version preview is kept). The rest is built in a **reduced form**: **Kanban** with a status dropdown or arrow buttons to move a task, **no drag and drop and no filters**; **audit** screen as a **plain table with an action filter only**; no remote cursors. **Drag and drop only at the very end**, if everything else, the seed and the deploy are done. Order: Kanban 5.1 to 5.3, then 6.1 to 6.3, then 7.5. The first deploy moves up to today.
 
 ## 6. Cuts and trims already applied
 
 | Task | Friday version | Post-submission |
 |---|---|---|
 | 4.2 automatic versions | Dropped on Tuesday 17 November. Manual and restore versions stay. **FR15 is future work (ADR-012)** | The worker (10 minutes, last editor leaves, keeps the newest 50) |
-| 6.3 audit screen | Audit list with the action, actor and entity-type filters | JSON inspector, CSV and JSON export (frame 40) |
+| 6.3 audit screen | Plain table with an action filter | Actor and entity-type filters, JSON inspector, CSV and JSON export (frame 40) |
 | 5.2 board page | Columns, task cards, create board, empty board | Filters |
 | 6.2 settings | Members and access (add, change role, remove) | General settings tab and danger zone |
 | 3.2 reconnect | Reconnect with backoff, banner and connection pill | "Waiting to sync" state (frame 13) |
@@ -170,17 +170,17 @@ The deliverable and acceptance text is the original, except where it asks for te
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
-| 5.1 | MUST in the plan, cut in packages B and C (K4) | Boards and tasks REST, move ordering and renumbering, member checks, TASK_CREATE, TASK_MOVE, TASK_DELETE audit, `BOARD_EVENT` | Task tests in `TESTING.md` |
-| 5.2 | MUST in the plan, cut in packages B and C (K4) | Web: board page, columns, task card states, create board, empty board (frames 25 to 27b). **Trimmed:** filters are post-submission | Component tests |
-| 5.3 | MUST in the plan, cut in packages B and C (K4) | Web: create task, details and edit, delete, drag and drop with keyboard support, viewer board (frames 28 to 32) | e2e scenario 7 |
+| 5.1 | MUST, package D (next) | Boards and tasks REST, move ordering and renumbering, member checks, TASK_CREATE, TASK_MOVE, TASK_DELETE audit, `BOARD_EVENT` | Task tests in `TESTING.md` |
+| 5.2 | MUST, package D: no filters | Web: board page, columns, task card states, create board, empty board (frames 25 to 27b). **Trimmed:** filters are post-submission | Component tests |
+| 5.3 | MUST, package D: status dropdown or arrow buttons, **no drag and drop** (that is only at the very end) | Web: create task, details and edit, delete, move between columns with a status dropdown or arrow buttons (keyboard accessible), viewer board (frames 28 to 32). **Trimmed:** drag and drop is post-submission unless time is left at the very end | e2e scenario 7 (moving a task with the status control) |
 
 ### Phase 6: settings and audit
 
 | Task | Status, day | Deliverable | Acceptance criteria and tests |
 |---|---|---|---|
 | 6.1 | MUST, Thu | Audit list endpoint with filters and cursor | Audit tests |
-| 6.2 | MUST in package B, cut in C (K5), Thu | Web: members and access, add member, change role, remove member (frames 34 to 37). **Trimmed:** general settings and the danger zone (frames 33, 38) are post-submission | Component tests (e2e scenario 8 is post-submission; its logic is covered by the member and audit server tests) |
-| 6.3 | MUST in package B, cut in C (K5), Thu | Web: audit trail list with the action, actor and entity-type filters (frame 39). **Trimmed:** the JSON inspector and the CSV and JSON export (frame 40) are post-submission | Component tests for the list and the filters |
+| 6.2 | MUST, package D | Web: members and access, add member, change role, remove member (frames 34 to 37). **Trimmed:** general settings and the danger zone (frames 33, 38) are post-submission | Component tests (e2e scenario 8 is post-submission; its logic is covered by the member and audit server tests) |
+| 6.3 | MUST, package D: a plain table with an action filter only | Web: audit trail as a plain table with an action filter (frame 39). **Trimmed:** the actor and entity-type filters, the JSON inspector and the CSV and JSON export (frame 40) are post-submission | Component tests for the table and the action filter |
 
 ### Phase 7: hardening, measurement, deployment
 
