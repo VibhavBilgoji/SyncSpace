@@ -189,7 +189,7 @@ ENTRYPOINT ["/server"]
 
 1. **Add New > Project**, import the GitHub repo, root directory `apps/web`, framework Next.js.
 2. Settings > Git: turn off automatic production deploys (deploys come from `deploy-web.yml`), or set "Ignored Build Step" to `exit 0`. Keep preview deploys off too, because they would build without the Wasm package.
-3. Add the web environment variables from §5.
+3. Add the web environment variables from §5. `apps/web/vercel.json` makes Vercel run only `pnpm install` and `next build`, and `apps/web/.vercelignore` makes a CLI upload include the gitignored Wasm package (`src/wasm/pkg`, made by `pnpm --dir apps/web wasm`). A remote build from the laptop is `vercel deploy --prod` in `apps/web` after the Wasm step; do not use `--prebuilt` from Windows (its symlinks are not uploaded).
 4. Create a token (Account Settings > Tokens) for `VERCEL_TOKEN`; run `vercel link` once locally in `apps/web` to get `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` from `.vercel/project.json`.
 5. Put the final Vercel URL in the server's `ALLOWED_ORIGINS` and redeploy the server.
 
