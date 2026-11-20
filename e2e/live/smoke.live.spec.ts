@@ -219,6 +219,19 @@ test("the audit trail is a table for the admin and refused for others", async ({
   await editor.context.close();
 });
 
+test("search finds a seeded document and the audit page", async ({ browser }) => {
+  const admin = await inWorkspace(browser, "admin");
+  await admin.page.getByRole("button", { name: "Search or jump to" }).click();
+  await admin.page.getByRole("combobox").fill("architecture");
+  await admin.page.getByRole("option", { name: /Architecture Overview/ }).click();
+  await expect(admin.page).toHaveURL(/\/docs\/[0-9a-f]{24}$/);
+  await admin.page.keyboard.press("Control+k");
+  await admin.page.getByRole("combobox").fill("audit");
+  await admin.page.getByRole("combobox").press("Enter");
+  await expect(admin.page).toHaveURL(/\/audit$/);
+  await admin.context.close();
+});
+
 test("the console had no CORS or WebSocket errors in any window", () => {
   const bad = consoleErrors.filter((line) => /cors|access-control|websocket|ws:\/\/|wss:\/\//i.test(line));
   expect(bad).toEqual([]);

@@ -31,6 +31,7 @@ The live site, with the seeded demo data (workspace "Engineering Team").
 - **Kanban boards.** Five fixed columns, tasks with priority, tags and assignees, drag and drop with pointer **and keyboard**, arrow buttons and a status dropdown as the fallback, and live updates through a workspace socket.
 - **Members screen.** Add a registered account, change a role (with a confirmation), remove a member; the owner cannot be changed.
 - **Audit trail.** Ten audited actions (members, documents, versions, tasks), written by the server in the same code path as the action, never updated or deleted; an Admin reads them in a table with an action filter.
+- **Search and command palette.** The header search field, or Ctrl/Cmd + K, finds documents, boards, Settings & Members and (for admins) the Audit Trail; arrow keys, Enter and Esc.
 - **Reconnect and connection state.** Backoff with jitter, a banner and a connection pill.
 
 Not built (kept in [`docs/PROGRESS.md`](docs/PROGRESS.md) with the reasons): remote cursors and selections, automatic versions (ADR-012), the Assignee and Priority filters in the board UI, the JSON inspector and export of the audit screen, the general settings tab, `DOC_LIST_EVENT` and `MEMBER_EVENT`, several server nodes with Redis.
