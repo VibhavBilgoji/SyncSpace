@@ -225,6 +225,7 @@ test("search finds a seeded document and the audit page", async ({ browser }) =>
   await admin.page.getByRole("combobox").fill("architecture");
   await admin.page.getByRole("option", { name: /Architecture Overview/ }).click();
   await expect(admin.page).toHaveURL(/\/docs\/[0-9a-f]{24}$/);
+  await expect(admin.page.getByText(/Active Sockets: \d/)).toBeVisible();
   await admin.page.keyboard.press("Control+k");
   await admin.page.getByRole("combobox").fill("audit");
   await admin.page.getByRole("combobox").press("Enter");
