@@ -114,9 +114,9 @@ cargo run -p server --bin seed -- --workspace "Engineering Team"   # prints a ra
 | Rust: unit, integration (real MongoDB), property tests | `cargo test --workspace` | 449 passed, 0 failed (3 more are ignored fixture generators) |
 | Native and Wasm parity | `wasm-pack test --node crates/sync-crdt` | passing |
 | Rust lint | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` | clean |
-| Web unit and component tests | `pnpm --dir apps/web test` | 356 tests in 30 files, all passing |
+| Web unit and component tests | `pnpm --dir apps/web test` | 378 tests in 31 files, all passing |
 | Web lint, format and types | `pnpm --dir apps/web lint && pnpm --dir apps/web typecheck` | clean |
-| End to end (real API and MongoDB, Chromium and Firefox) | `pnpm --dir e2e install && pnpm --dir e2e exec playwright install chromium firefox && pnpm --dir e2e test` | 18 runs in 6 spec files, all passing |
+| End to end (real API and MongoDB, Chromium and Firefox) | `pnpm --dir e2e install && pnpm --dir e2e exec playwright install chromium firefox && pnpm --dir e2e test` | 22 runs in 8 spec files (Chromium and Firefox), all passing |
 | Coverage gates (blocking in CI) | `cargo llvm-cov -p sync-crdt --fail-under-lines 90` and `cargo llvm-cov -p server --fail-under-lines 75` | both gates pass in CI |
 
 CI (`.github/workflows/ci.yml`) runs all of this on every pull request and on every push to `main`. Every protection added to the code was disabled in turn to check that a test fails (the log of that is in [`docs/PROGRESS.md`](docs/PROGRESS.md)). The strategy is in [`docs/TESTING.md`](docs/TESTING.md).
