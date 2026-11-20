@@ -1,5 +1,16 @@
 # Progress log
 
+## Submission status (Friday 20 November 2026)
+
+- **Live:** web https://syncspace-amber.vercel.app, API https://syncspace-api-latest.onrender.com (`/healthz` says ok with MongoDB ok), database MongoDB Atlas. Tagged `v1.0`.
+- **Demo accounts** (workspace "Engineering Team"): `vibhav@syncspace.demo` (Admin, owner), `sparsh@syncspace.demo` (Editor), `suyash@syncspace.demo` (Viewer). The password is `DEMO_PASSWORD` in the gitignored `.env.production.local` on the laptop; it is not in the repository.
+- **Checked on the live site** by `pnpm --dir e2e test:live` (8 checks, all passing, no CORS or WebSocket console errors): sign-in for all three users and a refused wrong password; live editing between browsers; the viewer cannot edit; save a version and restore it with a second browser following; a Kanban move that appears in a second browser; the members screen (read-only for a non-admin); the audit table with its action filter, refused for non-admins.
+- **Fresh test results on `main`:** Rust 449 passed, 0 failed (3 ignored fixture generators); web 356 passed (30 files); e2e 18 passed (Chromium and Firefox); lint, format and types clean.
+- **Not built, by decision:** remote cursors, automatic versions (ADR-012), board filters, the audit JSON inspector and export, the general settings tab, `DOC_LIST_EVENT` and `MEMBER_EVENT`, Redis and several nodes (phase 8), the load test (7.1 to 7.3).
+- **Known issues:** (1) The sidebar pill says "Connecting..." on pages without a live socket (members, audit, documents list); documents and boards show the real state. Cosmetic. (2) The free Render instance sleeps after 15 minutes; the first request takes about a minute. (3) The smoke test left `Smoke ...` rows in the audit trail and one extra version in "Sprint 12 Planning" (append-only, by design). (4) The slash menu, drag and drop, the role-change dialog and simultaneous typing are covered by local e2e and unit tests but not by the live smoke test.
+- **Database name:** Atlas already had a database called `Syncspace` (capital S, the one the API uses); the seed went there. The `MONGODB_DB` in `.env.production.local` now says `Syncspace`. A name differing only in case cannot be created in Atlas.
+- **Before presenting:** (1) open `https://syncspace-api-latest.onrender.com/healthz` five minutes before to wake the API; (2) sign in as the three users in three separate sessions (see `docs/DEMO.md`); (3) rehearse the demo once, in particular the parts the smoke test does not cover; (4) revoke the "Protection Bypass for Automation" secret that `vercel curl` added to the Vercel project (Settings, Deployment Protection) if you do not need it; (5) the `RENDER_DEPLOY_HOOK` line in `.env.production.local` is still a placeholder, which only matters if the server needs redeploying.
+
 Claude updates this file at the end of every task. Newest entries at the top of each section.
 
 ## Status
@@ -11,9 +22,9 @@ Claude updates this file at the end of every task. Newest entries at the top of 
 | 2 Documents and live editing | complete (2.1 to 2.6 merged, FR11 and the 7.4 hardening too) | |
 | 3 Collaboration details | 3.1, 3.2, 3.3 merged (3.4 and 3.5 are SHOULD, not started) | |
 | 4 Version history | complete except 4.2, which is dropped (ADR-012); 4.1, 4.3, 4.4, 4.5 merged | |
-| 5 Kanban | complete in package D form (5.1 to 5.3 merged; no drag and drop and no filters in the UI) | |
+| 5 Kanban | complete (5.1 to 5.3 merged, plus drag and drop by pointer and keyboard and the workspace socket; no filters in the UI) | |
 | 6 Settings and audit | complete in package D form (6.1 to 6.3 merged; members table, plain audit table with an action filter) | |
-| 7 Hardening, measurement, deployment | 7.4 files merged, **first deploy waits for the manual steps**; 7.5 seed merged; 7.1, 7.2, 7.3 not started | |
+| 7 Hardening, measurement, deployment | 7.4 done and deployed (web and API live); 7.5 seed merged and run on Atlas; 7.1, 7.2, 7.3 not started | `v1.0` |
 | 8 Redis (optional) | not started | |
 
 ## Task log
