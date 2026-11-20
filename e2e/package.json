@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "test:live": "playwright test -c live.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
