@@ -25,7 +25,7 @@ The live site, with the seeded demo data (workspace "Engineering Team").
 
 ## Features
 
-- **Live editing of block documents.** Six block types (paragraph, two headings, checklist, code, callout), a slash menu, remote edits that keep your caret, presence avatars and an "Active Sockets" counter. Edits merge without losing anyone's text, also after a dropped connection (the browser keeps its edits and merges them when it reconnects).
+- **Live editing of block documents.** Six block types (paragraph, two headings, checklist, code, callout), a slash menu, remote edits that keep your caret, presence avatars, an "Active Sockets" counter and **live cursors and selections** with each person's name, in their avatar colour (viewers are seen too). Edits merge without losing anyone's text, also after a dropped connection (the browser keeps its edits and merges them when it reconnects).
 - **Roles enforced by the server.** Admin, Editor and Viewer. Every REST route and every WebSocket frame checks the caller's role; the UI only hides what would be refused. A role change or a removal closes that person's open sockets at once.
 - **Version history.** Save a named version, preview it read-only, restore it for everybody (live), and undo a restore.
 - **Kanban boards.** Five fixed columns, tasks with priority, tags and assignees, drag and drop with pointer **and keyboard**, arrow buttons and a status dropdown as the fallback, and live updates through a workspace socket.
@@ -34,7 +34,7 @@ The live site, with the seeded demo data (workspace "Engineering Team").
 - **Search and command palette.** The header search field, or Ctrl/Cmd + K, finds documents, boards, Settings & Members and (for admins) the Audit Trail; arrow keys, Enter and Esc.
 - **Reconnect and connection state.** Backoff with jitter, a banner and a connection pill.
 
-Not built (kept in [`docs/PROGRESS.md`](docs/PROGRESS.md) with the reasons): remote cursors and selections, automatic versions (ADR-012), the Assignee and Priority filters in the board UI, the JSON inspector and export of the audit screen, the general settings tab, `DOC_LIST_EVENT` and `MEMBER_EVENT`, several server nodes with Redis.
+Not built (kept in [`docs/PROGRESS.md`](docs/PROGRESS.md) with the reasons): automatic versions (ADR-012), the Assignee and Priority filters in the board UI, the JSON inspector and export of the audit screen, the general settings tab, `DOC_LIST_EVENT` and `MEMBER_EVENT`, several server nodes with Redis.
 
 ## Architecture
 

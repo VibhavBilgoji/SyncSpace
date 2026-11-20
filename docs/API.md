@@ -118,6 +118,8 @@ Binary frames follow the y-sync protocol (`yrs::sync`), first varint is the mess
 | SyncStep2, Update | allow | reject: JSON `ERROR {code: "READ_ONLY"}`, update dropped |
 | Awareness | allow | allow |
 
+**Awareness state (JSON, at most 1024 bytes).** `{"name": string, "cursor"?: {"block": block id, "anchor": int, "head": int}}`, or `null` when the person leaves. `anchor` and `head` are offsets into that block's text in UTF-16 units; the head is the end the person moves, so a backwards selection has `head < anchor`. A client re-announces every 10 s, and on a change of cursor at most every 100 ms (the awareness limit is 20 per second). The server only relays; receivers ignore a cursor that is not a block id and two non-negative integers up to 1 000 000.
+
 Text frames are JSON `{"type": ..., ...}`. The server answers a viewer's `SyncStep2` or `Update` with `ERROR READ_ONLY` and drops the frame (the document is not changed and nobody else receives it); frames over the rate limit get `ERROR RATE_LIMITED` and are dropped, and the socket stays open; a frame or document over its size limit closes with 1009. A text frame the server does not understand, and a binary frame it cannot decode or that breaks the document schema, close with 1008.
 
 An update that builds on changes the server does not have (it arrived before the update it depends on) is not applied; the server answers with its own SyncStep1 and keeps the socket open, and the client replies with the diff. Any other frame or update the server cannot handle closes the socket with 1008.

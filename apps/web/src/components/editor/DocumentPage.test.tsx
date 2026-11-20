@@ -50,6 +50,8 @@ vi.mock("@/lib/doc/useDocumentSession", () => ({
     ],
     activeSockets: 2,
     peers: live.peers,
+    cursors: [],
+    setCursor: vi.fn(),
     saved: null,
     versionEvent: null,
     notice: null,
