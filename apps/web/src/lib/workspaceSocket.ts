@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useReportConnection } from "@/lib/connection";
+import type { ConnectionState } from "@/components/shell/ConnectionPill";
 import { ApiError } from "@/lib/api/errors";
 import { retryDelay } from "@/lib/doc/backoff";
 import type { ServerFrame } from "@/types/generated";
@@ -11,6 +13,20 @@ const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080";
 const PING_MS = 20_000;
 
 export type WorkspaceSocketStatus = "connecting" | "live" | "reconnecting" | "ended";
+
+/** What the sidebar pill shows for a workspace socket (the board pages have no document socket). */
+export function connectionOf(status: WorkspaceSocketStatus): ConnectionState {
+  switch (status) {
+    case "live":
+      return "connected";
+    case "reconnecting":
+      return "reconnecting";
+    case "ended":
+      return "disconnected";
+    default:
+      return "connecting";
+  }
+}
 
 interface Handlers {
   /** Every frame the server sends except `PONG`. */
@@ -30,6 +46,7 @@ interface Handlers {
  */
 export function useWorkspaceSocket(workspaceId: string, handlers: Handlers): WorkspaceSocketStatus {
   const [status, setStatus] = useState<WorkspaceSocketStatus>("connecting");
+  useReportConnection(connectionOf(status));
   const handlersRef = useRef(handlers);
   useEffect(() => {
     handlersRef.current = handlers;

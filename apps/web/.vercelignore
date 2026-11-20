@@ -1,6 +1,13 @@
 # What `vercel deploy` uploads when this folder is the project root. Without this file the CLI
 # falls back to .gitignore, which excludes the generated Wasm package that the build imports
 # (src/wasm/pkg, made by `pnpm wasm`). Everything the CLI always skips (node_modules, .git,
-# .vercel, .next, local env files) stays skipped.
+# .vercel, .next) stays skipped.
+
+# Secrets and local settings never leave the machine. Production variables live in Vercel.
+.env
+.env.*
+**/.env
+**/.env.*
+.vercel
 coverage
 *.tsbuildinfo

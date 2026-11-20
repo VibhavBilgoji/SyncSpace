@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/errors";
-import { useWorkspaceSocket } from "./workspaceSocket";
+import { ConnectionProvider, useConnectionState } from "@/lib/connection";
+import { connectionOf, useWorkspaceSocket } from "./workspaceSocket";
 
 const { wsTicket } = vi.hoisted(() => ({ wsTicket: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: { auth: { wsTicket } } }));
@@ -210,5 +212,31 @@ describe("useWorkspaceSocket", () => {
     await settle();
     expect(FakeSocket.instances[0]?.closed).toBe(true);
     expect(FakeSocket.instances[1]?.url).toContain("/ws/v1/workspaces/ws2?");
+  });
+
+  it("maps its status to the sidebar pill", () => {
+    expect(connectionOf("connecting")).toBe("connecting");
+    expect(connectionOf("live")).toBe("connected");
+    expect(connectionOf("reconnecting")).toBe("reconnecting");
+    expect(connectionOf("ended")).toBe("disconnected");
+  });
+
+  it("shows the socket's state in the pill while the page is open, and resets it on leaving", async () => {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ConnectionProvider>{children}</ConnectionProvider>
+    );
+    const view = renderHook(
+      () => {
+        const status = useWorkspaceSocket("ws1", { onFrame: vi.fn() });
+        return { status, pill: useConnectionState() };
+      },
+      { wrapper },
+    );
+    expect(view.result.current.pill).toBe("connecting");
+    await settle();
+    act(() => FakeSocket.instances[0]?.open());
+    expect(view.result.current.pill).toBe("connected");
+    act(() => FakeSocket.instances[0]?.drop(1006));
+    expect(view.result.current.pill).toBe("reconnecting");
   });
 });
