@@ -1,8 +1,8 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "@/lib/api";
 import { ada, renderWithSession } from "@/test/render";
-import { LoginForm } from "./LoginForm";
+import { LoginForm, WAKE_ATTEMPTS, WAKE_WAIT_MS } from "./LoginForm";
 
 const nav = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => nav }));
@@ -56,18 +56,99 @@ describe("LoginForm", () => {
     expect(submit()).toBeEnabled();
   });
 
-  it("explains a rate limit and a network failure differently", async () => {
+  it("explains a rate limit and an unexpected failure differently, and retries neither", async () => {
     const login = vi
       .spyOn(api.auth, "login")
       .mockRejectedValueOnce(new ApiError(429, "RATE_LIMITED", "slow down"))
-      .mockRejectedValueOnce(new ApiError(0, "NETWORK", "offline"));
+      .mockRejectedValueOnce(new ApiError(400, "BAD_REQUEST", "odd"));
     renderWithSession(<LoginForm />);
     fill("ada@example.com", "secret");
     fireEvent.click(submit());
     expect(await screen.findByRole("alert")).toHaveTextContent("Too many attempts");
     fireEvent.click(submit());
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not sign in"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Check your connection"),
+    );
     expect(login).toHaveBeenCalledTimes(2);
+  });
+
+  describe("while the server wakes up", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const settle = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    it.each([
+      ["a network error", new ApiError(0, "NETWORK", "offline")],
+      ["a 502", new ApiError(502, "UNKNOWN", "bad gateway")],
+      ["a 503", new ApiError(503, "UNKNOWN", "unavailable")],
+      ["a 504", new ApiError(504, "UNKNOWN", "timeout")],
+    ])("tries again by itself after %s, says why, and signs in", async (_name, failure) => {
+      const login = vi
+        .spyOn(api.auth, "login")
+        .mockRejectedValueOnce(failure)
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue(ada);
+      renderWithSession(<LoginForm />);
+      fill("ada@example.com", "secret");
+      fireEvent.click(submit());
+      await settle(0);
+      expect(screen.getByRole("status")).toHaveTextContent("Waking up the server");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(submit()).toBeDisabled();
+      expect(login).toHaveBeenCalledTimes(1);
+      await settle(WAKE_WAIT_MS);
+      expect(login).toHaveBeenCalledTimes(2);
+      await settle(WAKE_WAIT_MS);
+      expect(login).toHaveBeenCalledTimes(3);
+      expect(nav.replace).toHaveBeenCalledWith("/w");
+    });
+
+    it("gives up after the last attempt with a message that names the cause", async () => {
+      const login = vi
+        .spyOn(api.auth, "login")
+        .mockRejectedValue(new ApiError(504, "UNKNOWN", "timeout"));
+      renderWithSession(<LoginForm />);
+      fill("ada@example.com", "secret");
+      fireEvent.click(submit());
+      await settle(WAKE_WAIT_MS * WAKE_ATTEMPTS);
+      expect(login).toHaveBeenCalledTimes(WAKE_ATTEMPTS);
+      expect(screen.getByRole("alert")).toHaveTextContent("may still be waking up");
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(submit()).toBeEnabled();
+      expect(nav.replace).not.toHaveBeenCalled();
+    });
+
+    it("stops at once on a wrong password, even after waiting", async () => {
+      const login = vi
+        .spyOn(api.auth, "login")
+        .mockRejectedValueOnce(new ApiError(504, "UNKNOWN", "timeout"))
+        .mockRejectedValueOnce(new ApiError(401, "UNAUTHORIZED", "invalid email or password"));
+      renderWithSession(<LoginForm />);
+      fill("ada@example.com", "wrong");
+      fireEvent.click(submit());
+      await settle(WAKE_WAIT_MS);
+      expect(login).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("alert")).toHaveTextContent("Invalid email or password.");
+    });
+
+    it("does not keep trying, or navigate, after the page is left", async () => {
+      const login = vi
+        .spyOn(api.auth, "login")
+        .mockRejectedValueOnce(new ApiError(0, "NETWORK", "offline"))
+        .mockResolvedValue(ada);
+      const view = renderWithSession(<LoginForm />);
+      fill("ada@example.com", "secret");
+      fireEvent.click(submit());
+      await settle(0);
+      view.unmount();
+      await settle(WAKE_WAIT_MS * 3);
+      expect(login).toHaveBeenCalledTimes(1);
+      expect(nav.replace).not.toHaveBeenCalled();
+    });
   });
 
   it("links to registration", () => {
