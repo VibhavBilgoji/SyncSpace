@@ -4,9 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionPill } from "@/components/shell/ConnectionPill";
 import { ApiError } from "@/lib/api/errors";
 import { ConnectionProvider, useConnectionState } from "@/lib/connection";
-import { connectionOf, useDocumentSession } from "./useDocumentSession";
+import { connectionOf, parseCursor, useDocumentSession } from "./useDocumentSession";
 
-const { wsTicket } = vi.hoisted(() => ({ wsTicket: vi.fn() }));
+const { wsTicket, awareness } = vi.hoisted(() => ({
+  wsTicket: vi.fn(),
+  /** What the fake Wasm package was asked to send, and what it says it received. */
+  awareness: { sent: [] as string[], received: "[]" },
+}));
 
 vi.mock("@/lib/api", () => ({ api: { auth: { wsTicket } } }));
 vi.mock("@/lib/session", () => ({
@@ -22,8 +26,11 @@ vi.mock("@/wasm/pkg/sync_crdt", () => {
   return {
     default: () => Promise.resolve(),
     WasmDocument,
-    awarenessFrame: () => new Uint8Array([1]),
-    decodeAwareness: () => "[]",
+    awarenessFrame: (_client: number, _clock: number, json: string) => {
+      awareness.sent.push(json);
+      return new Uint8Array([1]);
+    },
+    decodeAwareness: () => awareness.received,
     orderBetween: () => 1,
     updateFrame: (update: Uint8Array) => update,
   };
@@ -78,6 +85,8 @@ beforeEach(() => {
   vi.spyOn(Math, "random").mockReturnValue(0.5); // no jitter: waits are exactly 0.5, 1, 2, 4, 8 s
   vi.stubGlobal("WebSocket", FakeSocket);
   FakeSocket.instances = [];
+  awareness.sent = [];
+  awareness.received = "[]";
   wsTicket.mockReset();
   let n = 0;
   wsTicket.mockImplementation(() => Promise.resolve({ ticket: `t${(n += 1)}` }));
@@ -306,5 +315,129 @@ describe("version frames", () => {
     send({ type: "VERSION_CREATED", ...summary });
     send({ type: "VERSION_CREATED", ...summary });
     expect(result.current.versionEvent?.seq).toBe(2);
+  });
+});
+
+describe("cursors", () => {
+  const lastSent = () => JSON.parse(awareness.sent[awareness.sent.length - 1] ?? "null");
+  const receive = (entries: unknown[]) => {
+    awareness.received = JSON.stringify(entries);
+    act(() =>
+      FakeSocket.instances[0]?.onmessage?.({ data: new Uint8Array([1]).buffer } as MessageEvent),
+    );
+  };
+
+  async function live() {
+    const view = start();
+    await settle();
+    act(() => FakeSocket.instances[0]?.open());
+    awareness.sent = [];
+    return view;
+  }
+
+  it("sends the caret after a short pause, only the newest one, and nothing until it changes", async () => {
+    const { result } = await live();
+    act(() => result.current.setCursor({ blockId: "b1", anchor: 2, head: 2 }));
+    act(() => result.current.setCursor({ blockId: "b1", anchor: 3, head: 5 }));
+    expect(awareness.sent).toHaveLength(0);
+    await settle(100);
+    expect(awareness.sent).toHaveLength(1);
+    expect(lastSent()).toEqual({
+      name: "Ada Lovelace",
+      cursor: { block: "b1", anchor: 3, head: 5 },
+    });
+    act(() => result.current.setCursor({ blockId: "b1", anchor: 3, head: 5 }));
+    await settle(500);
+    expect(awareness.sent).toHaveLength(1);
+  });
+
+  it("never sends more than ten cursor frames a second, however fast the caret moves", async () => {
+    const { result } = await live();
+    for (let i = 1; i <= 100; i += 1) {
+      act(() => result.current.setCursor({ blockId: "b1", anchor: i, head: i }));
+      await settle(10);
+    }
+    await settle(100);
+    expect(awareness.sent.length).toBeLessThanOrEqual(11);
+    expect(lastSent().cursor.anchor).toBe(100);
+  });
+
+  it("tells the others when the caret leaves the document, and repeats it with the heartbeat", async () => {
+    const { result } = await live();
+    act(() => result.current.setCursor({ blockId: "b1", anchor: 1, head: 1 }));
+    await settle(100);
+    act(() => result.current.setCursor(null));
+    await settle(100);
+    expect(lastSent()).toEqual({ name: "Ada Lovelace" });
+    act(() => result.current.setCursor({ blockId: "b2", anchor: 0, head: 4 }));
+    await settle(10_000);
+    expect(lastSent().cursor).toEqual({ block: "b2", anchor: 0, head: 4 });
+  });
+
+  it("includes the caret in the first announcement after a reconnect", async () => {
+    const { result } = await live();
+    act(() => result.current.setCursor({ blockId: "b1", anchor: 7, head: 7 }));
+    await settle(100);
+    act(() => FakeSocket.instances[0]?.drop(1006));
+    await settle(500);
+    awareness.sent = [];
+    act(() => FakeSocket.instances[1]?.open());
+    expect(lastSent().cursor).toEqual({ block: "b1", anchor: 7, head: 7 });
+  });
+
+  it("lists the other people's cursors, and drops one that leaves or is not a block position", async () => {
+    const { result } = await live();
+    receive([
+      { client_id: 7, state: { name: "Vibhav", cursor: { block: "b1", anchor: 4, head: 9 } } },
+      { client_id: 8, state: { name: "Sparsh" } },
+      { client_id: 9, state: { name: "Odd", cursor: { block: "b1", anchor: -3, head: "x" } } },
+    ]);
+    expect(result.current.peers).toEqual(["Odd", "Sparsh", "Vibhav"]);
+    expect(result.current.cursors).toEqual([
+      { clientId: 7, name: "Vibhav", blockId: "b1", anchor: 4, head: 9 },
+    ]);
+    receive([
+      { client_id: 7, state: { name: "Vibhav", cursor: { block: "b2", anchor: 1, head: 1 } } },
+    ]);
+    expect(result.current.cursors).toEqual([
+      { clientId: 7, name: "Vibhav", blockId: "b2", anchor: 1, head: 1 },
+    ]);
+    receive([{ client_id: 7, state: null }]);
+    expect(result.current.cursors).toEqual([]);
+  });
+
+  it("forgets every cursor when the connection drops", async () => {
+    const { result } = await live();
+    receive([
+      { client_id: 7, state: { name: "Vibhav", cursor: { block: "b1", anchor: 1, head: 1 } } },
+    ]);
+    expect(result.current.cursors).toHaveLength(1);
+    act(() => FakeSocket.instances[0]?.drop(1006));
+    expect(result.current.cursors).toEqual([]);
+  });
+});
+
+describe("parseCursor", () => {
+  it("accepts a block position and nothing else", () => {
+    expect(parseCursor({ block: "b1", anchor: 0, head: 12 })).toEqual({
+      blockId: "b1",
+      anchor: 0,
+      head: 12,
+    });
+    for (const bad of [
+      null,
+      undefined,
+      "b1",
+      42,
+      {},
+      { block: "", anchor: 0, head: 0 },
+      { block: "b".repeat(65), anchor: 0, head: 0 },
+      { block: "b1", anchor: -1, head: 0 },
+      { block: "b1", anchor: 0.5, head: 0 },
+      { block: "b1", anchor: 0, head: 1_000_001 },
+      { block: 5, anchor: 0, head: 0 },
+    ]) {
+      expect(parseCursor(bad)).toBeNull();
+    }
   });
 });

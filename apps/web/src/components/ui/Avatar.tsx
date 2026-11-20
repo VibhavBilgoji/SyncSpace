@@ -13,11 +13,28 @@ function initialOf(name: string): string {
   return first ? first.toUpperCase() : "?";
 }
 
-/** The same name always gets the same colour. */
-function colorOf(name: string): string {
+function hashOf(name: string): number {
   let hash = 0;
   for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return palette[hash % palette.length] ?? "";
+  return hash;
+}
+
+/** The same name always gets the same colour. */
+function colorOf(name: string): string {
+  return palette[hashOf(name) % palette.length] ?? "";
+}
+
+const cursorColors = [
+  "var(--indigo)",
+  "var(--success)",
+  "var(--warning)",
+  "var(--danger)",
+  "var(--violet)",
+];
+
+/** The design token behind a name's avatar colour, for a remote cursor of the same person. */
+export function cursorColorOf(name: string): string {
+  return cursorColors[hashOf(name) % cursorColors.length] ?? "var(--indigo)";
 }
 
 export type AvatarSize = "sm" | "md";

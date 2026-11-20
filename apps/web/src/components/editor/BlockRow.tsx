@@ -3,7 +3,9 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn";
 import { diffText, shiftOffset } from "@/lib/textDiff";
+import type { CursorPosition, RemoteCursor } from "@/lib/doc/useDocumentSession";
 import type { Block, BlockType } from "@/types/generated";
+import { RemoteCursors } from "./RemoteCursors";
 import { SlashMenu, filterSlashItems, type SlashItem } from "./SlashMenu";
 
 export interface BlockActions {
@@ -34,6 +36,10 @@ interface Props {
   onFocused: () => void;
   onFocusBlock: (id: string) => void;
   actions: BlockActions;
+  /** Other people's carets and selections in this block. */
+  cursors: RemoteCursor[];
+  /** This person's caret or selection moved here, or left every block (null). */
+  onCursor: (cursor: CursorPosition | null) => void;
 }
 
 /** One block: an auto-growing textarea whose edits are diffed into the document operations. */
@@ -45,6 +51,8 @@ export function BlockRow({
   onFocused,
   onFocusBlock,
   actions,
+  cursors,
+  onCursor,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const shown = useRef(block.content);
@@ -76,6 +84,16 @@ export function BlockRow({
   }, [focusRequested, onFocused]);
 
   const items = menu ? filterSlashItems(menu.query) : [];
+
+  /** Tells the others where the caret or selection is. The head is the end the user moves. */
+  function report(textarea: HTMLTextAreaElement) {
+    const backward = textarea.selectionDirection === "backward";
+    onCursor({
+      blockId: block.block_id,
+      anchor: backward ? textarea.selectionEnd : textarea.selectionStart,
+      head: backward ? textarea.selectionStart : textarea.selectionEnd,
+    });
+  }
 
   function onChange(value: string) {
     const diff = diffText(shown.current, value);
@@ -183,9 +201,19 @@ export function BlockRow({
           readOnly={readOnly}
           aria-label={`${block.type.toLowerCase().replace("_", " ")} block`}
           placeholder={readOnly ? undefined : "Type / for commands"}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            onChange(event.target.value);
+            report(event.target);
+          }}
           onKeyDown={onKeyDown}
-          onBlur={() => setMenu(null)}
+          onKeyUp={(event) => report(event.currentTarget)}
+          onSelect={(event) => report(event.currentTarget)}
+          onFocus={(event) => report(event.currentTarget)}
+          onClick={(event) => report(event.currentTarget)}
+          onBlur={() => {
+            setMenu(null);
+            onCursor(null);
+          }}
           spellCheck={block.type !== "CODE"}
           className={cn(
             "block w-full resize-none overflow-hidden bg-transparent text-text outline-none placeholder:text-text-faint",
@@ -194,6 +222,7 @@ export function BlockRow({
             block.type === "CHECKLIST" && checked && "text-text-muted line-through",
           )}
         />
+        <RemoteCursors textarea={ref} content={block.content} type={block.type} cursors={cursors} />
         {menu && !readOnly && <SlashMenu items={items} active={menu.active} onPick={pick} />}
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DocumentSession } from "@/lib/doc/useDocumentSession";
-import type { Block } from "@/types/generated";
+import type { Block, VersionSummary } from "@/types/generated";
 import { DocumentEditor } from "./DocumentEditor";
 import { filterSlashItems } from "./SlashMenu";
 
@@ -20,6 +20,8 @@ function fakeSession(overrides: Partial<DocumentSession> = {}): DocumentSession 
     blocks: [block("blk000000001", { content: "Hello" })],
     activeSockets: 2,
     peers: [],
+    cursors: [],
+    setCursor: vi.fn(),
     saved: { revision: 4, savedAt: "2026-11-17T10:00:00Z" },
     notice: null,
     versionEvent: null,
@@ -272,5 +274,126 @@ describe("DocumentEditor preview (frame 20)", () => {
     renderEditor(fakeSession());
     expect(screen.queryByText(/Read-only archive/)).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("Hello")).toBeInTheDocument();
+  });
+
+  describe("cursors", () => {
+    const two = [
+      block("blk000000001", { content: "First line", order: 1 }),
+      block("blk000000002", { content: "Second line", order: 2 }),
+    ];
+
+    it("draws another person's caret and name in their block only", () => {
+      renderEditor(
+        fakeSession({
+          blocks: two,
+          cursors: [{ clientId: 7, name: "Vibhav", blockId: "blk000000002", anchor: 3, head: 3 }],
+        }),
+      );
+      const second = document.querySelector('[data-block-id="blk000000002"]') as HTMLElement;
+      const first = document.querySelector('[data-block-id="blk000000001"]') as HTMLElement;
+      expect(within(second).getByText("Vibhav")).toBeInTheDocument();
+      expect(within(first).queryByText("Vibhav")).not.toBeInTheDocument();
+    });
+
+    it("draws several people in one block, each with their own name", () => {
+      renderEditor(
+        fakeSession({
+          blocks: two,
+          cursors: [
+            { clientId: 7, name: "Vibhav", blockId: "blk000000001", anchor: 0, head: 5 },
+            { clientId: 8, name: "Sparsh", blockId: "blk000000001", anchor: 9, head: 2 },
+          ],
+        }),
+      );
+      expect(screen.getByText("Vibhav")).toBeInTheDocument();
+      expect(screen.getByText("Sparsh")).toBeInTheDocument();
+    });
+
+    it("copes with a position past the end of the text", () => {
+      renderEditor(
+        fakeSession({
+          blocks: two,
+          cursors: [
+            { clientId: 7, name: "Vibhav", blockId: "blk000000001", anchor: 900, head: 950 },
+          ],
+        }),
+      );
+      expect(screen.getByText("Vibhav")).toBeInTheDocument();
+    });
+
+    it("never lets the cursor overlay take clicks or be read out", () => {
+      renderEditor(
+        fakeSession({
+          blocks: two,
+          cursors: [{ clientId: 7, name: "Vibhav", blockId: "blk000000001", anchor: 1, head: 1 }],
+        }),
+      );
+      const overlay = screen.getByTestId("remote-cursors");
+      expect(overlay).toHaveAttribute("aria-hidden", "true");
+      expect(overlay.className).toContain("pointer-events-none");
+    });
+
+    it("reports this person's caret when they click, type or select, and leave", () => {
+      const setCursor = vi.fn();
+      renderEditor(fakeSession({ blocks: two, setCursor }));
+      const box = screen.getByDisplayValue("Second line") as HTMLTextAreaElement;
+      box.focus();
+      box.setSelectionRange(4, 4);
+      fireEvent.select(box);
+      expect(setCursor).toHaveBeenLastCalledWith({ blockId: "blk000000002", anchor: 4, head: 4 });
+      box.setSelectionRange(2, 8, "forward");
+      fireEvent.select(box);
+      expect(setCursor).toHaveBeenLastCalledWith({ blockId: "blk000000002", anchor: 2, head: 8 });
+      box.setSelectionRange(2, 8, "backward");
+      fireEvent.select(box);
+      expect(setCursor).toHaveBeenLastCalledWith({ blockId: "blk000000002", anchor: 8, head: 2 });
+      fireEvent.blur(box);
+      expect(setCursor).toHaveBeenLastCalledWith(null);
+    });
+
+    it("lets a viewer be seen too, and shows the cursors to a viewer", () => {
+      const setCursor = vi.fn();
+      renderEditor(
+        fakeSession({
+          blocks: two,
+          setCursor,
+          cursors: [{ clientId: 7, name: "Vibhav", blockId: "blk000000001", anchor: 1, head: 1 }],
+        }),
+        "VIEWER",
+      );
+      expect(screen.getByText("Vibhav")).toBeInTheDocument();
+      const box = screen.getByDisplayValue("First line") as HTMLTextAreaElement;
+      box.focus();
+      fireEvent.select(box);
+      expect(setCursor).toHaveBeenCalled();
+    });
+
+    it("shows no cursors and reports none while previewing an archived version", () => {
+      const setCursor = vi.fn();
+      const version = {
+        version_number: 1,
+        change_type: "MANUAL",
+        label: "Outline",
+        created_at: "2026-11-17T10:00:00Z",
+      } as unknown as VersionSummary;
+      render(
+        <DocumentEditor
+          title="Notes"
+          icon="📝"
+          role="EDITOR"
+          session={fakeSession({
+            blocks: two,
+            setCursor,
+            cursors: [{ clientId: 7, name: "Vibhav", blockId: "blk000000001", anchor: 1, head: 1 }],
+          })}
+          preview={{ version, blocks: two }}
+        />,
+      );
+      expect(screen.queryByText("Vibhav")).not.toBeInTheDocument();
+      const box = screen.getByDisplayValue("First line") as HTMLTextAreaElement;
+      box.focus();
+      fireEvent.select(box);
+      expect(setCursor).not.toHaveBeenCalled();
+    });
   });
 });

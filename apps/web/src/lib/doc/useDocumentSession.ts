@@ -32,12 +32,29 @@ export type VersionEvent = { seq: number } & (
   | { kind: "restored"; by: UserRef; restoredFrom: number; version: VersionSummary }
 );
 
+/** Where a person's caret or selection is: offsets into one block's text (UTF-16 units). */
+export interface CursorPosition {
+  blockId: string;
+  anchor: number;
+  head: number;
+}
+
+/** Another person's cursor, from their awareness state. */
+export interface RemoteCursor extends CursorPosition {
+  clientId: number;
+  name: string;
+}
+
 export interface DocumentSession {
   status: SessionStatus;
   blocks: Block[];
   activeSockets: number;
-  /** Names of the other people with this document open (awareness; no cursors). */
+  /** Names of the other people with this document open (awareness). */
   peers: string[];
+  /** Where those people have their caret or selection, for the ones that are in a block. */
+  cursors: RemoteCursor[];
+  /** Tells the others where this person's caret is (null: not in any block). Throttled. */
+  setCursor(cursor: CursorPosition | null): void;
   /** Last snapshot the server reported: `rev_N · Saved to MongoDB`. */
   saved: { revision: number; savedAt: string } | null;
   /** The last `VERSION_CREATED` or `DOC_RESTORED` frame (history panel, toast). */
@@ -73,6 +90,8 @@ export function randomBlockId(): string {
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080";
 /** Presence is announced this often, and a peer not heard from for three times as long is gone. */
 const PRESENCE_MS = 10_000;
+/** The cursor is sent at most this often (the server allows 20 awareness frames per second). */
+const CURSOR_MS = 100;
 const AWARENESS_TAG = 1; // the y-sync message type of an awareness frame
 
 /** What the sidebar pill shows for a session status. */
@@ -88,6 +107,17 @@ export function connectionOf(status: SessionStatus): ConnectionState {
     default:
       return "disconnected";
   }
+}
+
+/** A cursor from an awareness state, or null when it is missing or not plausible. */
+export function parseCursor(value: unknown): CursorPosition | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { block, anchor, head } = value as Record<string, unknown>;
+  const offset = (n: unknown) =>
+    typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 1_000_000;
+  if (typeof block !== "string" || block === "" || block.length > 64) return null;
+  if (!offset(anchor) || !offset(head)) return null;
+  return { blockId: block, anchor: anchor as number, head: head as number };
 }
 
 function readBlocks(doc: WasmDocument): Block[] {
@@ -110,6 +140,10 @@ export function useDocumentSession(docId: string): DocumentSession {
   const [versionEvent, setVersionEvent] = useState<VersionEvent | null>(null);
   const eventSeq = useRef(0);
   const [peers, setPeers] = useState<string[]>([]);
+  const [cursors, setCursors] = useState<RemoteCursor[]>([]);
+  const cursorRef = useRef<CursorPosition | null>(null);
+  const sendPresenceRef = useRef<(() => void) | null>(null);
+  const cursorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { session } = useSession();
   const myName = session.status === "authed" ? session.user.name : "Someone";
   const nameRef = useRef(myName);
@@ -128,12 +162,17 @@ export function useDocumentSession(docId: string): DocumentSession {
     let clientId = 0;
     let clock = 0;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
-    const seen = new Map<number, { name: string; at: number }>();
+    const seen = new Map<number, { name: string; at: number; cursor: CursorPosition | null }>();
 
     const publishPeers = () => {
       const cutoff = Date.now() - PRESENCE_MS * 3;
       for (const [id, peer] of seen) if (peer.at < cutoff) seen.delete(id);
       setPeers([...seen.values()].map((p) => p.name).sort());
+      const list: RemoteCursor[] = [];
+      for (const [clientId, peer] of seen) {
+        if (peer.cursor) list.push({ clientId, name: peer.name, ...peer.cursor });
+      }
+      setCursors(list);
     };
     const announce = (ws: WebSocket, state: string) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -177,7 +216,19 @@ export function useDocumentSession(docId: string): DocumentSession {
         attempt = 0;
         setStatus("live");
         if (doc) ws.send(doc.syncStep1Frame());
-        const hello = () => announce(ws, JSON.stringify({ name: nameRef.current }));
+        const hello = () => {
+          const cursor = cursorRef.current;
+          announce(
+            ws,
+            JSON.stringify({
+              name: nameRef.current,
+              ...(cursor && {
+                cursor: { block: cursor.blockId, anchor: cursor.anchor, head: cursor.head },
+              }),
+            }),
+          );
+        };
+        sendPresenceRef.current = hello;
         hello();
         clearInterval(heartbeat);
         heartbeat = setInterval(() => {
@@ -220,13 +271,17 @@ export function useDocumentSession(docId: string): DocumentSession {
           try {
             const entries = JSON.parse(decodeAwareness(bytes)) as Array<{
               client_id: number;
-              state: { name?: unknown } | null;
+              state: { name?: unknown; cursor?: unknown } | null;
             }>;
             for (const entry of entries) {
               if (entry.client_id === clientId) continue;
               const name = entry.state?.name;
               if (typeof name === "string" && name !== "") {
-                seen.set(entry.client_id, { name: name.slice(0, 80), at: Date.now() });
+                seen.set(entry.client_id, {
+                  name: name.slice(0, 80),
+                  at: Date.now(),
+                  cursor: parseCursor(entry.state?.cursor),
+                });
               } else {
                 seen.delete(entry.client_id);
               }
@@ -250,7 +305,9 @@ export function useDocumentSession(docId: string): DocumentSession {
       ws.onclose = (event: CloseEvent) => {
         clearInterval(heartbeat);
         seen.clear();
+        sendPresenceRef.current = null;
         setPeers([]);
+        setCursors([]);
         if (cancelled) return;
         const end = endOf(event.code);
         if (end) setStatus(end);
@@ -272,6 +329,8 @@ export function useDocumentSession(docId: string): DocumentSession {
       cancelled = true;
       clearTimeout(retry);
       clearInterval(heartbeat);
+      clearTimeout(cursorTimer.current);
+      cursorTimer.current = undefined;
       if (wsRef.current) announce(wsRef.current, "null");
       wsRef.current?.close();
       wsRef.current = null;
@@ -279,6 +338,20 @@ export function useDocumentSession(docId: string): DocumentSession {
       doc?.free();
     };
   }, [docId]);
+
+  const setCursor = useCallback((cursor: CursorPosition | null) => {
+    const same = (x: CursorPosition | null, y: CursorPosition | null) =>
+      x === y ||
+      (!!x && !!y && x.blockId === y.blockId && x.anchor === y.anchor && x.head === y.head);
+    if (same(cursorRef.current, cursor)) return;
+    cursorRef.current = cursor;
+    // Trailing throttle: only the newest position is sent, at most every CURSOR_MS.
+    if (cursorTimer.current !== undefined) return;
+    cursorTimer.current = setTimeout(() => {
+      cursorTimer.current = undefined;
+      sendPresenceRef.current?.();
+    }, CURSOR_MS);
+  }, []);
 
   /** Applies a local edit and sends it. A refused edit (bad range, unknown block) changes nothing. */
   const edit = useCallback((run: (doc: WasmDocument) => Uint8Array): boolean => {
@@ -341,6 +414,8 @@ export function useDocumentSession(docId: string): DocumentSession {
     blocks,
     activeSockets,
     peers,
+    cursors,
+    setCursor,
     saved,
     versionEvent,
     notice,

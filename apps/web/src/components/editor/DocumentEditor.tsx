@@ -19,6 +19,8 @@ interface Props {
   onLeavePreview?: () => void;
 }
 
+const ignoreCursor = () => {};
+
 /** The status text of the metadata line (frame 09), "Waiting to sync" while offline. */
 function saveLabel(session: DocumentSession): string {
   if (session.status !== "live") return "Waiting to sync";
@@ -126,6 +128,8 @@ export function DocumentEditor({
               onFocused={clearFocus}
               onFocusBlock={setFocusId}
               actions={session}
+              cursors={preview ? [] : session.cursors.filter((c) => c.blockId === block.block_id)}
+              onCursor={preview ? ignoreCursor : session.setCursor}
             />
           ))}
         </div>
