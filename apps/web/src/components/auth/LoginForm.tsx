@@ -2,13 +2,31 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api, isApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { AuthCard } from "./AuthCard";
+
+/**
+ * The free API host sleeps when idle and takes up to a minute to wake: the first request then
+ * ends in a network error or a 502, 503 or 504 from the proxy, and that request is what wakes the
+ * server. Signing in is safe to repeat, so the form tries again by itself and says why.
+ */
+export const WAKE_ATTEMPTS = 8;
+export const WAKE_WAIT_MS = 6000;
+
+function serverNotAnswering(error: unknown): boolean {
+  return (
+    isApiError(error) &&
+    (error.code === "NETWORK" ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504)
+  );
+}
 
 export function LoginForm() {
   const router = useRouter();
@@ -17,6 +35,14 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waking, setWaking] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const valid = email.trim() !== "" && password !== "";
 
@@ -25,19 +51,33 @@ export function LoginForm() {
     if (!valid || loading) return;
     setLoading(true);
     setError(null);
-    try {
-      const user = await api.auth.login({ email: email.trim(), password });
-      signedIn(user);
-      router.replace("/w");
-    } catch (e) {
-      setError(
-        isApiError(e) && e.status === 401
-          ? "Invalid email or password."
-          : isApiError(e) && e.status === 429
-            ? "Too many attempts. Try again in a moment."
-            : "Could not sign in. Check your connection and try again.",
-      );
-      setLoading(false);
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const user = await api.auth.login({ email: email.trim(), password });
+        signedIn(user);
+        router.replace("/w");
+        return;
+      } catch (e) {
+        if (!mounted.current) return;
+        if (serverNotAnswering(e) && attempt < WAKE_ATTEMPTS) {
+          setWaking(true);
+          await new Promise((resolve) => setTimeout(resolve, WAKE_WAIT_MS));
+          if (!mounted.current) return;
+          continue;
+        }
+        setWaking(false);
+        setError(
+          isApiError(e) && e.status === 401
+            ? "Invalid email or password."
+            : isApiError(e) && e.status === 429
+              ? "Too many attempts. Try again in a moment."
+              : serverNotAnswering(e)
+                ? "Could not sign in. The server did not answer; it may still be waking up. Wait a minute and try again."
+                : "Could not sign in. Check your connection and try again.",
+        );
+        setLoading(false);
+        return;
+      }
     }
   }
 
@@ -69,6 +109,12 @@ export function LoginForm() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        {waking && !error && (
+          <Banner tone="info" title="Waking up the server">
+            The free hosting sleeps when idle. This can take up to a minute; sign-in continues by
+            itself.
+          </Banner>
+        )}
         {error && (
           <Banner tone="danger" title="Sign-in failed">
             {error}
