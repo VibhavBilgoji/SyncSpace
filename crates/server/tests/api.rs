@@ -581,6 +581,7 @@ async fn graceful_shutdown_finishes_the_in_flight_request_and_stops() {
         let _ = stopped.await;
     }));
 
+    common::install_tls();
     let client = reqwest::Client::new();
     let url = format!("http://{addr}/__test/slow");
     let in_flight = tokio::spawn({

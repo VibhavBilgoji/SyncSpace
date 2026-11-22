@@ -319,6 +319,7 @@ fn serialised_values_have_exactly_the_keys_of_the_generated_types() {
                 id: "u".into(),
                 name: "n".into(),
                 email: "e".into(),
+                github_login: Some("g".into()),
             })
             .unwrap(),
         ),
@@ -430,6 +431,10 @@ fn serialised_values_have_exactly_the_keys_of_the_generated_types() {
                 created_at: "x".into(),
             })
             .unwrap(),
+        ),
+        (
+            "AuthProviders",
+            serde_json::to_value(server::auth::github::ProvidersResponse { github: true }).unwrap(),
         ),
         (
             "Page",

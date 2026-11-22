@@ -83,10 +83,16 @@ export function createMockApi(): Api {
         if (users.some((u) => u.email === normalized)) {
           throw new ApiError(409, "CONFLICT", "that email is already registered");
         }
-        const user = { id: id(), name: name.trim(), email: normalized, password };
+        const user = {
+          id: id(),
+          name: name.trim(),
+          email: normalized,
+          github_login: null,
+          password,
+        };
         users.push(user);
         sessionUserId = user.id;
-        return { id: user.id, name: user.name, email: user.email };
+        return { id: user.id, name: user.name, email: user.email, github_login: null };
       },
       async login({ email, password }) {
         const user = users.find((u) => u.email === email.trim().toLowerCase());
@@ -94,7 +100,7 @@ export function createMockApi(): Api {
           throw new ApiError(401, "UNAUTHORIZED", "invalid email or password");
         }
         sessionUserId = user.id;
-        return { id: user.id, name: user.name, email: user.email };
+        return { id: user.id, name: user.name, email: user.email, github_login: null };
       },
       async logout() {
         sessionUserId = null;
@@ -106,7 +112,10 @@ export function createMockApi(): Api {
       async me() {
         const user = users.find((u) => u.id === sessionUserId);
         if (!user) throw new ApiError(401, "UNAUTHORIZED", "not signed in");
-        return { id: user.id, name: user.name, email: user.email };
+        return { id: user.id, name: user.name, email: user.email, github_login: null };
+      },
+      async providers() {
+        return { github: false };
       },
     },
     workspaces: {

@@ -68,7 +68,7 @@ describe("CommandPalette", () => {
     const field = await openShell();
     fireEvent.click(field);
     const list = await screen.findByRole("listbox", { name: "Results" });
-    await waitFor(() => expect(within(list).getAllByRole("option")).toHaveLength(7));
+    await waitFor(() => expect(within(list).getAllByRole("option")).toHaveLength(8));
     expect(within(list).getByRole("option", { name: /Product Requirements/ })).toBeInTheDocument();
     expect(within(list).getByRole("option", { name: "Board: Sprint 12" })).toBeInTheDocument();
     expect(within(list).getByRole("option", { name: /Audit Trail/ })).toHaveTextContent("Admin");
@@ -105,13 +105,13 @@ describe("CommandPalette", () => {
     await openShell();
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
     const input = await screen.findByRole("combobox");
-    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(7));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(8));
     expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
     press("ArrowDown");
     expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
     press("ArrowUp");
     press("ArrowUp");
-    expect(screen.getAllByRole("option")[6]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByRole("option")[7]).toHaveAttribute("aria-selected", "true");
     press("ArrowDown");
     press("ArrowDown");
     expect(input).toHaveAttribute("aria-activedescendant", expect.stringContaining("d-d2"));
@@ -155,7 +155,7 @@ describe("CommandPalette", () => {
   it("loads the lists again each time it opens, so a new document shows up", async () => {
     await openShell();
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
-    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(7));
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(8));
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     vi.mocked(api.documents.list).mockResolvedValue([

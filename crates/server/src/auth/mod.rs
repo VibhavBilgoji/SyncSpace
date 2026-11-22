@@ -7,6 +7,7 @@
 
 pub mod cookie;
 mod extractor;
+pub mod github;
 pub mod handlers;
 pub mod password;
 pub mod session;

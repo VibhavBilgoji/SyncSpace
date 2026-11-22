@@ -139,6 +139,7 @@ async fn starts_and_serves_healthz() {
         .env("RUST_LOG", "info");
     let server = Running(command.spawn().unwrap());
 
+    common::install_tls();
     let client = reqwest::Client::new();
     let url = format!("http://127.0.0.1:{port}/healthz");
     let started = Instant::now();
@@ -163,7 +164,11 @@ async fn starts_and_serves_healthz() {
         futures_util::TryStreamExt::try_collect(users.list_indexes().await.unwrap())
             .await
             .unwrap();
-    assert_eq!(indexes.len(), 2, "_id_ and the unique email index");
+    assert_eq!(
+        indexes.len(),
+        3,
+        "_id_, the unique email index and the sparse unique GitHub id index"
+    );
 
     drop(server);
 }

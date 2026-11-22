@@ -3,6 +3,7 @@ export type { AddMemberRequest } from "./AddMemberRequest";
 export type { ApiErrorBody } from "./ApiErrorBody";
 export type { ApiErrorResponse } from "./ApiErrorResponse";
 export type { AuditEntry } from "./AuditEntry";
+export type { AuthProviders } from "./AuthProviders";
 export type { Block } from "./Block";
 export type { BlockType } from "./BlockType";
 export type { Board } from "./Board";

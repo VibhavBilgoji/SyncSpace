@@ -47,6 +47,8 @@ Each user has one role per workspace. The workspace owner is always a member wit
 | FR17 | ADMINs and EDITORs can restore a version. The current content is saved first as a RESTORE version, then the old content is applied as a new edit that everyone connected sees live. No version is deleted by a restore. |
 | FR18 | A command palette (Ctrl/Cmd + K) jumps to documents, boards, settings and (for ADMINs) the audit trail. |
 | FR19 | A document can be shared with a workspace-scoped link that only workspace members can open. |
+| FR20 | A person can sign in or register with GitHub (OAuth, identity and verified email only). The GitHub account is linked to the SyncSpace account with the same verified email, or to the signed-in account when it is linked from the Repositories page. Optional: off until the server has an OAuth App configured. |
+| FR21 | A "Repositories" page lists the public repositories of the linked GitHub account (read only: name, description, language, stars, forks, last update, link). No GitHub token is stored. |
 
 ## 4. Non-functional requirements
 

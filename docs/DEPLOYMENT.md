@@ -132,9 +132,20 @@ Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` (set the last two 
 | `COOKIE_SECURE` | `true` | `false` only for local http |
 | `SNAPSHOT_INTERVAL_SECS` | `5` | |
 | `METRICS_TOKEN` | unset | Bearer token (16+ characters) for `GET /metrics`. Unset: the endpoint answers 404. Set it on the API service and give the same value to whatever scrapes it |
+| `GITHUB_CLIENT_ID` | `Ov23li...` | optional: sign in with GitHub (ADR-015). Set it together with the next two or none of them |
+| `GITHUB_CLIENT_SECRET` | | secret, from the GitHub OAuth App |
+| `PUBLIC_WEB_URL` | `https://syncspace-amber.vercel.app` | the exact web origin; the callback URL registered with GitHub is `<PUBLIC_WEB_URL>/api/v1/auth/github/callback` |
+| `GITHUB_OAUTH_URL`, `GITHUB_API_URL` | `https://github.com`, `https://api.github.com` | only changed by tests (a fake GitHub) |
 | `VERSION_INTERVAL_SECS` | `600` | |
 | `AUTO_VERSION_RETENTION` | `50` | |
 | `RUST_LOG` | `info,server=info` | |
+
+#### Setting up sign in with GitHub (optional)
+1. GitHub, Settings, Developer settings, OAuth Apps, **New OAuth App**. Application name `SyncSpace`, Homepage URL the web origin, **Authorization callback URL** `<web origin>/api/v1/auth/github/callback` (exactly, no trailing slash).
+2. Generate a client secret. Put `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `PUBLIC_WEB_URL` into the Render service environment and redeploy. Never commit them.
+3. Open the login page: "Continue with GitHub" appears. To switch the feature off, remove all three variables.
+
+The app asks GitHub for `read:user user:email` only. It stores no GitHub token; the public repositories are read by the browser from `api.github.com`.
 
 ### Web (Vercel, Production)
 | Name | Example | Notes |

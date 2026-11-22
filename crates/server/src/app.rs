@@ -121,6 +121,15 @@ pub fn api_route_table() -> Vec<RouteSpec> {
             post(auth::ws_ticket::ws_ticket)
         }),
         RouteSpec::new("GET", "/auth/me", Access::User, || get(auth::handlers::me)),
+        RouteSpec::new("GET", "/auth/providers", Access::Public, || {
+            get(auth::github::providers)
+        }),
+        RouteSpec::new("GET", "/auth/github/start", Access::Public, || {
+            get(auth::github::start)
+        }),
+        RouteSpec::new("GET", "/auth/github/callback", Access::Public, || {
+            get(auth::github::callback)
+        }),
         RouteSpec::new("GET", "/workspaces", Access::User, || {
             get(w::list_workspaces)
         }),

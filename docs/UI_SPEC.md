@@ -66,6 +66,7 @@ Nested documents in the sidebar are a design reference only: render a flat list.
 |---|---|---|
 | `/login` | 01 Sign in, 03 Authentication error | error shown inline under the form |
 | `/register` | 02 Create account | |
+| `/login`, `/register` (GitHub) | no Figma frame | "Continue with GitHub" above the form when the server has it set up, with "or use your email" under it; a failed GitHub sign-in is the red banner "GitHub sign-in failed" with the reason |
 | `/onboarding` | 04 Create first workspace | shown when the user has no workspaces |
 | `/w` | 05 Workspace picker | cards with role and counts |
 | `/w/[slug]` | redirects to `/w/[slug]/docs` | |
@@ -73,6 +74,7 @@ Nested documents in the sidebar are a design reference only: render a flat list.
 | `/w/[slug]/docs/[docId]` | 09 to 16, 41, 42 | the editor; share link uses this URL |
 | same, `?history=1` | 18 to 24b | history panel on the right (360 px) |
 | `/w/[slug]/boards/[boardId]` | 25 to 32 | |
+| `/w/[slug]/repos` | no Figma frame (added by FR21) | the sidebar section GITHUB, item "Repositories": heading, `@login` link, filter field and a list of cards (name link, Fork and Archived badges, description, language, stars, forks, updated date); "Connect your GitHub account" when not linked; built only from the existing tokens and components |
 | `/w/[slug]/settings` | 33 General | tabs: General Settings, Members & Access, Danger Zone |
 | `/w/[slug]/settings/members` | 34 to 37 | |
 | `/w/[slug]/settings/danger` | 38 | |

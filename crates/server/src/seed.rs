@@ -359,8 +359,12 @@ pub async fn seed(db: &Database, options: &SeedOptions) -> Result<SeedReport, Se
                     id: ObjectId::new(),
                     email: email.to_string(),
                     name: person_name.to_string(),
-                    password_hash: crate::auth::password::hash(&options.password)
-                        .map_err(|e| SeedError::Password(e.to_string()))?,
+                    password_hash: Some(
+                        crate::auth::password::hash(&options.password)
+                            .map_err(|e| SeedError::Password(e.to_string()))?,
+                    ),
+                    github_id: None,
+                    github_login: None,
                     created_at: DateTime::now(),
                 };
                 match users::insert(db, &user).await {

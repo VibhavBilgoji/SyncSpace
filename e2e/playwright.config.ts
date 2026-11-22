@@ -2,6 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const mongoUri = process.env.MONGODB_URI ?? "mongodb://localhost:27017";
+// A fake GitHub on the loopback interface (tools/mock-github.mjs): sign in with GitHub and the
+// repositories page are tested against it, never against the real GitHub.
+const githubUrl = "http://127.0.0.1:4010";
 
 export default defineConfig({
   testDir: "./tests",
@@ -18,6 +21,12 @@ export default defineConfig({
   ],
   webServer: [
     {
+      command: "node tools/mock-github.mjs",
+      url: `${githubUrl}/__health`,
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+    {
       // The real API on its own database. The two secrets are public test values (32 bytes of
       // 0x01 and 0x02), never used anywhere else.
       command: "cargo run -p server",
@@ -33,6 +42,11 @@ export default defineConfig({
         TICKET_SECRET: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
         ALLOWED_ORIGINS: baseURL,
         COOKIE_SECURE: "false",
+        GITHUB_CLIENT_ID: "e2e-client",
+        GITHUB_CLIENT_SECRET: "e2e-secret",
+        PUBLIC_WEB_URL: baseURL,
+        GITHUB_OAUTH_URL: githubUrl,
+        GITHUB_API_URL: githubUrl,
         SNAPSHOT_INTERVAL_SECS: "1",
         RUST_LOG: "warn",
       },
@@ -47,6 +61,7 @@ export default defineConfig({
       env: {
         API_ORIGIN: "http://localhost:8080",
         NEXT_PUBLIC_WS_URL: "ws://localhost:8080",
+        NEXT_PUBLIC_GITHUB_API_URL: githubUrl,
       },
     },
   ],

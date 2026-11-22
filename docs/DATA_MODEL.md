@@ -30,8 +30,12 @@ Entities: User, Workspace, Document, Block (weak, owned by Document), Document v
 | `_id` | ObjectId | |
 | `email` | string | lower-cased, unique |
 | `name` | string | 1 to 80 chars |
-| `password_hash` | string | argon2id PHC string |
+| `password_hash` | string, optional | argon2id PHC string; absent for an account that only signs in with GitHub (ADR-015) |
+| `github_id` | int64, optional | the numeric GitHub account id; unique when present (sparse index) |
+| `github_login` | string, optional | the GitHub username, refreshed at each sign-in; the browser lists its public repositories from it |
 | `created_at` | DateTime | |
+
+No GitHub access token or client secret is stored anywhere.
 
 ### workspaces
 | Field | Type | Notes |
@@ -131,7 +135,7 @@ Not logged: snapshot writes, automatic versions, task edits other than moves, lo
 ## 4. Indexes
 
 ```
-users:              { email: 1 } unique
+users:              { email: 1 } unique;  { github_id: 1 } unique sparse
 workspaces:         { slug: 1 } unique;  { "members.user_id": 1 }
 documents:          { workspace_id: 1, updated_at: -1 }
 document_versions:  { document_id: 1, version_number: -1 } unique

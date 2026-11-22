@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import type {
   AuditEntry,
+  AuthProviders,
   Board,
   CreateBoardRequest,
   CreateTaskRequest,
@@ -34,6 +35,7 @@ export const realAuth: AuthApi = {
   login: (input) => request<User>("POST", "/auth/login", input),
   logout: () => request<void>("POST", "/auth/logout"),
   me: () => request<User>("GET", "/auth/me"),
+  providers: () => request<AuthProviders>("GET", "/auth/providers"),
   wsTicket: (input) => request<WsTicketResponse>("POST", "/auth/ws-ticket", input),
 };
 

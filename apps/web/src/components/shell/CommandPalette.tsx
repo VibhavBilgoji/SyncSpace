@@ -22,6 +22,7 @@ function workspaceItems(workspace: WorkspaceSummary): Item[] {
   const items: Item[] = [
     { id: "w-docs", group: "WORKSPACE", label: "All documents", href: `${base}/docs` },
     { id: "w-boards", group: "WORKSPACE", label: "All boards", href: `${base}/boards` },
+    { id: "w-repos", group: "WORKSPACE", label: "Repositories", href: `${base}/repos` },
   ];
   if (workspace.role === "ADMIN") {
     items.push({

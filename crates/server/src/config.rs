@@ -55,6 +55,24 @@ pub struct Config {
     pub auto_version_retention: u32,
     /// Bearer token for `GET /metrics`. Unset: the endpoint answers 404.
     pub metrics_token: Option<Secret<String>>,
+    /// Sign in with GitHub (`docs/API.md`, ADR-015). `None`: the feature is off and the sign-in
+    /// page shows no GitHub button.
+    pub github: Option<GithubConfig>,
+}
+
+/// The GitHub OAuth App the server signs people in with.
+#[derive(Debug, Clone)]
+pub struct GithubConfig {
+    pub client_id: String,
+    pub client_secret: Secret<String>,
+    /// The origin of the web app (`https://host`), where the browser comes back to: the
+    /// callback URL registered with GitHub is `<web_url>/api/v1/auth/github/callback`.
+    pub web_url: String,
+    /// Where people are sent to approve and where codes are exchanged. A test points it at a
+    /// fake GitHub.
+    pub oauth_url: String,
+    /// The REST API that says who signed in.
+    pub api_url: String,
 }
 
 /// Everything that is wrong with the environment, one message per problem. The messages name
@@ -79,7 +97,7 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// The variables this module reads.
-const VARIABLES: [&str; 11] = [
+const VARIABLES: [&str; 16] = [
     "PORT",
     "MONGODB_URI",
     "MONGODB_DB",
@@ -91,6 +109,11 @@ const VARIABLES: [&str; 11] = [
     "VERSION_INTERVAL_SECS",
     "AUTO_VERSION_RETENTION",
     "METRICS_TOKEN",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "PUBLIC_WEB_URL",
+    "GITHUB_OAUTH_URL",
+    "GITHUB_API_URL",
 ];
 
 impl Config {
@@ -163,6 +186,8 @@ impl Config {
             problems.push("METRICS_TOKEN must be at least 16 characters when set".to_string());
         }
 
+        let github = github(&mut problems, &get);
+
         match (mongodb_uri, jwt_secret, ticket_secret) {
             (Some(uri), Some(jwt), Some(ticket)) if problems.is_empty() => Ok(Self {
                 port,
@@ -176,9 +201,68 @@ impl Config {
                 version_interval_secs,
                 auto_version_retention,
                 metrics_token: metrics_token.map(Secret::new),
+                github,
             }),
             _ => Err(ConfigError { problems }),
         }
+    }
+}
+
+/// The GitHub settings: all of `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `PUBLIC_WEB_URL`,
+/// or none of them (the feature is off). Half a configuration is an error, so a typo cannot
+/// silently switch sign-in off.
+fn github<'a>(
+    problems: &mut Vec<String>,
+    get: &impl Fn(&str) -> Option<&'a str>,
+) -> Option<GithubConfig> {
+    let id = get("GITHUB_CLIENT_ID");
+    let secret = get("GITHUB_CLIENT_SECRET");
+    let web = get("PUBLIC_WEB_URL");
+    if id.is_none() && secret.is_none() && web.is_none() {
+        return None;
+    }
+    let mut complete = true;
+    for (name, value) in [
+        ("GITHUB_CLIENT_ID", id),
+        ("GITHUB_CLIENT_SECRET", secret),
+        ("PUBLIC_WEB_URL", web),
+    ] {
+        if value.is_none() {
+            problems.push(format!(
+                "{name} is required when any of GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and                  PUBLIC_WEB_URL is set"
+            ));
+            complete = false;
+        }
+    }
+    let web_url = web.and_then(normalise_origin);
+    if web.is_some() && web_url.is_none() {
+        problems.push(
+            "PUBLIC_WEB_URL must look like https://host or http://host:port (no path)".to_string(),
+        );
+    }
+    let base = |name: &str, default: &str, problems: &mut Vec<String>| {
+        let raw = get(name).unwrap_or(default);
+        let trimmed = raw.trim_end_matches('/');
+        if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+            Some(trimmed.to_string())
+        } else {
+            problems.push(format!("{name} must start with https:// or http://"));
+            None
+        }
+    };
+    let oauth_url = base("GITHUB_OAUTH_URL", "https://github.com", problems);
+    let api_url = base("GITHUB_API_URL", "https://api.github.com", problems);
+    match (complete, id, secret, web_url, oauth_url, api_url) {
+        (true, Some(id), Some(secret), Some(web_url), Some(oauth_url), Some(api_url)) => {
+            Some(GithubConfig {
+                client_id: id.to_string(),
+                client_secret: Secret::new(secret.to_string()),
+                web_url,
+                oauth_url,
+                api_url,
+            })
+        }
+        _ => None,
     }
 }
 
@@ -470,5 +554,62 @@ mod tests {
         assert_eq!(set.metrics_token.unwrap().expose(), "a-long-enough-token");
         vars.insert("METRICS_TOKEN".into(), "short".into());
         assert!(problems(&vars).iter().any(|p| p.contains("METRICS_TOKEN")));
+    }
+
+    #[test]
+    fn github_is_off_unless_configured_and_all_three_settings_come_together() {
+        assert!(Config::from_map(&valid()).unwrap().github.is_none());
+
+        let mut vars = valid();
+        vars.insert("GITHUB_CLIENT_ID".into(), "Iv1.abc".into());
+        let found = problems(&vars);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with("GITHUB_CLIENT_SECRET is required"))
+        );
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with("PUBLIC_WEB_URL is required"))
+        );
+
+        vars.insert("GITHUB_CLIENT_SECRET".into(), "shh-it-is-a-secret".into());
+        vars.insert("PUBLIC_WEB_URL".into(), "https://App.Example/".into());
+        let github = Config::from_map(&vars).unwrap().github.unwrap();
+        assert_eq!(github.client_id, "Iv1.abc");
+        assert_eq!(github.web_url, "https://app.example");
+        assert_eq!(github.oauth_url, "https://github.com");
+        assert_eq!(github.api_url, "https://api.github.com");
+    }
+
+    #[test]
+    fn github_urls_are_checked_and_the_secret_is_never_printed() {
+        let mut vars = valid();
+        vars.insert("GITHUB_CLIENT_ID".into(), "id".into());
+        vars.insert("GITHUB_CLIENT_SECRET".into(), "shh-it-is-a-secret".into());
+        vars.insert("PUBLIC_WEB_URL".into(), "https://app.example/path".into());
+        vars.insert("GITHUB_OAUTH_URL".into(), "ftp://github".into());
+        let found = problems(&vars);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with("PUBLIC_WEB_URL must look like"))
+        );
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with("GITHUB_OAUTH_URL must start with"))
+        );
+        assert!(!found.join(" ").contains("shh-it-is-a-secret"));
+
+        vars.insert("PUBLIC_WEB_URL".into(), "https://app.example".into());
+        vars.insert("GITHUB_OAUTH_URL".into(), "http://127.0.0.1:9/".into());
+        let config = Config::from_map(&vars).unwrap();
+        assert_eq!(
+            config.github.as_ref().unwrap().oauth_url,
+            "http://127.0.0.1:9"
+        );
+        assert!(!format!("{:?}", config.github).contains("shh-it-is-a-secret"));
     }
 }

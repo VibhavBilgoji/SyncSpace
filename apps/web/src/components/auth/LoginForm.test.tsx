@@ -2,12 +2,19 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "@/lib/api";
 import { ada, renderWithSession } from "@/test/render";
-import { LoginForm, WAKE_ATTEMPTS, WAKE_WAIT_MS } from "./LoginForm";
+import { GITHUB_ERRORS, LoginForm, WAKE_ATTEMPTS, WAKE_WAIT_MS } from "./LoginForm";
 
-const nav = vi.hoisted(() => ({ replace: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => nav }));
+const nav = vi.hoisted(() => ({ replace: vi.fn(), query: { value: "" } }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => nav,
+  useSearchParams: () => new URLSearchParams(nav.query.value),
+}));
 
-beforeEach(() => nav.replace.mockClear());
+beforeEach(() => {
+  nav.replace.mockClear();
+  nav.query.value = "";
+  vi.spyOn(api.auth, "providers").mockResolvedValue({ github: false });
+});
 
 function fill(email: string, password: string) {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
@@ -157,5 +164,49 @@ describe("LoginForm", () => {
       "href",
       "/register",
     );
+  });
+
+  describe("with GitHub", () => {
+    it("offers Continue with GitHub only when the server has it set up", async () => {
+      renderWithSession(<LoginForm />);
+      await act(async () => {});
+      expect(screen.queryByRole("link", { name: /Continue with GitHub/ })).not.toBeInTheDocument();
+    });
+
+    it("links the button to the start of the GitHub sign-in on the web domain", async () => {
+      vi.spyOn(api.auth, "providers").mockResolvedValue({ github: true });
+      renderWithSession(<LoginForm />);
+      const link = await screen.findByRole("link", { name: /Continue with GitHub/ });
+      expect(link).toHaveAttribute("href", "/api/v1/auth/github/start");
+    });
+
+    it("shows no button when the providers cannot be read", async () => {
+      vi.spyOn(api.auth, "providers").mockRejectedValue(new ApiError(0, "NETWORK", "offline"));
+      renderWithSession(<LoginForm />);
+      await act(async () => {});
+      expect(screen.queryByRole("link", { name: /Continue with GitHub/ })).not.toBeInTheDocument();
+    });
+
+    it.each(Object.entries(GITHUB_ERRORS))(
+      "explains the callback error %s in words",
+      (code, message) => {
+        nav.query.value = `github_error=${code}`;
+        renderWithSession(<LoginForm />);
+        const alert = screen.getByRole("alert");
+        expect(alert).toHaveTextContent("GitHub sign-in failed");
+        expect(alert).toHaveTextContent(message);
+      },
+    );
+
+    it("treats an unknown error code like a failure and shows nothing without one", () => {
+      nav.query.value = "github_error=%3Cscript%3E";
+      const view = renderWithSession(<LoginForm />);
+      expect(screen.getByRole("alert")).toHaveTextContent(GITHUB_ERRORS.failed as string);
+      expect(screen.getByRole("alert")).not.toHaveTextContent("script");
+      view.unmount();
+      nav.query.value = "";
+      renderWithSession(<LoginForm />);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 });
