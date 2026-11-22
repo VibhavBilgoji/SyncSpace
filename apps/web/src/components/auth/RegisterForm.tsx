@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/Input";
 import { api, isApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { AuthCard } from "./AuthCard";
+import { GithubButton } from "./GithubButton";
 
 type Field = "name" | "email" | "password";
 
@@ -65,6 +66,7 @@ export function RegisterForm() {
       }
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+        <GithubButton />
         <Input
           label="Name"
           autoComplete="name"

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/Input";
 import { api, isApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { AuthCard } from "./AuthCard";
+import { GithubButton } from "./GithubButton";
 
 /**
  * The free API host sleeps when idle and takes up to a minute to wake: the first request then
@@ -17,6 +18,16 @@ import { AuthCard } from "./AuthCard";
  */
 export const WAKE_ATTEMPTS = 8;
 export const WAKE_WAIT_MS = 6000;
+
+/** What each `?github_error=` code from the GitHub callback means for the person. */
+export const GITHUB_ERRORS: Record<string, string> = {
+  denied: "GitHub sign-in was cancelled.",
+  state: "The GitHub sign-in expired or was not started on this page. Please try again.",
+  failed: "Could not sign in with GitHub. Try again in a moment.",
+  no_email:
+    "Your GitHub account has no verified email address. Verify one on GitHub, or create an account with your email.",
+  conflict: "This GitHub account, or the SyncSpace account, is already linked to another one.",
+};
 
 function serverNotAnswering(error: unknown): boolean {
   return (
@@ -30,6 +41,7 @@ function serverNotAnswering(error: unknown): boolean {
 
 export function LoginForm() {
   const router = useRouter();
+  const githubError = useSearchParams().get("github_error");
   const { signedIn } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -95,6 +107,12 @@ export function LoginForm() {
       }
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+        {githubError !== null && (
+          <Banner tone="danger" title="GitHub sign-in failed">
+            {GITHUB_ERRORS[githubError] ?? GITHUB_ERRORS.failed}
+          </Banner>
+        )}
+        <GithubButton />
         <Input
           label="Email"
           type="email"

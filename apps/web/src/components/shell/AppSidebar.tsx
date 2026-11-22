@@ -62,6 +62,11 @@ export function AppSidebar() {
           All boards
         </NavItem>
 
+        <SectionLabel>GitHub</SectionLabel>
+        <NavItem href={`${base}/repos`} active={pathname.startsWith(`${base}/repos`)}>
+          Repositories
+        </NavItem>
+
         <SectionLabel>System</SectionLabel>
         {isAdmin && (
           <NavItem

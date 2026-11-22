@@ -72,6 +72,20 @@ fn fixture(key: &str) -> Option<Fixture> {
             ok: 200,
             body: |ctx| Some(json!({"scope": "doc", "id": ctx.doc_hex})),
         },
+        // Public. Without GitHub configured in this app: the providers are listed, `start` is a
+        // 404 in the error format, and a callback without a state goes back to the sign-in page.
+        "GET /auth/providers" => Fixture {
+            ok: 200,
+            body: none,
+        },
+        "GET /auth/github/start" => Fixture {
+            ok: 404,
+            body: none,
+        },
+        "GET /auth/github/callback" => Fixture {
+            ok: 302,
+            body: none,
+        },
         "GET /auth/me" => Fixture {
             ok: 200,
             body: none,
@@ -406,6 +420,9 @@ fn the_table_has_a_fixture_for_every_route_and_no_stale_fixture() {
         "POST /auth/login",
         "POST /auth/logout",
         "GET /auth/me",
+        "GET /auth/providers",
+        "GET /auth/github/start",
+        "GET /auth/github/callback",
         "POST /auth/ws-ticket",
         "GET /workspaces",
         "POST /workspaces",

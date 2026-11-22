@@ -20,7 +20,7 @@ beforeEach(() => nav.router.replace.mockClear());
 
 function open(role: "ADMIN" | "EDITOR" | "VIEWER" = "ADMIN") {
   vi.spyOn(api.workspaces, "list").mockResolvedValue([workspaceSummary({ role })]);
-  renderWithSession(
+  return renderWithSession(
     <WorkspaceShell title="Documents">
       <p>page content</p>
     </WorkspaceShell>,
@@ -44,6 +44,17 @@ describe("WorkspaceShell", () => {
       "page",
     );
     expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+  });
+
+  it("links Repositories for every role", async () => {
+    for (const role of ["ADMIN", "EDITOR", "VIEWER"] as const) {
+      const view = open(role);
+      expect(await screen.findByRole("link", { name: "Repositories" })).toHaveAttribute(
+        "href",
+        "/w/eng/repos",
+      );
+      view.unmount();
+    }
   });
 
   it("shows the Audit Trail only to ADMINs", async () => {

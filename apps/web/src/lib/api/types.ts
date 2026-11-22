@@ -1,6 +1,7 @@
 import type {
   AddMemberRequest,
   AuditEntry,
+  AuthProviders,
   Board,
   ChangeRoleRequest,
   CreateBoardRequest,
@@ -34,6 +35,8 @@ export interface AuthApi {
   login(input: LoginRequest): Promise<User>;
   logout(): Promise<void>;
   me(): Promise<User>;
+  /** What the sign-in pages may offer (GitHub sign-in exists only when the server is set up). */
+  providers(): Promise<AuthProviders>;
   /** A single-use ticket (30 s) for opening a WebSocket. */
   wsTicket(input: WsTicketRequest): Promise<WsTicketResponse>;
 }

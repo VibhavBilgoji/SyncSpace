@@ -27,6 +27,8 @@ pub struct UserResponse {
     pub id: String,
     pub name: String,
     pub email: String,
+    /// The linked GitHub account, if any (ADR-015). Public repositories are listed from it.
+    pub github_login: Option<String>,
 }
 
 impl From<&User> for UserResponse {
@@ -35,6 +37,7 @@ impl From<&User> for UserResponse {
             id: user.id.to_hex(),
             name: user.name.clone(),
             email: user.email.clone(),
+            github_login: user.github_login.clone(),
         }
     }
 }
@@ -45,7 +48,11 @@ fn invalid_credentials() -> ApiError {
 }
 
 /// `status`, the user, and a `Set-Cookie` that starts a session for them.
-fn signed_in(state: &AppState, status: StatusCode, user: &User) -> Result<Response, ApiError> {
+pub(super) fn signed_in(
+    state: &AppState,
+    status: StatusCode,
+    user: &User,
+) -> Result<Response, ApiError> {
     let token = session::issue(state.config.jwt_secret.expose(), user.id, session::now())
         .map_err(ApiError::internal)?;
     let cookie = cookie::session_cookie(&token, state.config.cookie_secure);
@@ -76,7 +83,9 @@ pub async fn register(
         id: ObjectId::new(),
         email: registration.email,
         name: registration.name,
-        password_hash: state.auth.hash(registration.password).await?,
+        password_hash: Some(state.auth.hash(registration.password).await?),
+        github_id: None,
+        github_login: None,
         created_at: DateTime::now(),
     };
     match users::insert(&state.db, &user).await {
@@ -111,11 +120,13 @@ pub async fn login(
             return Err(invalid_credentials());
         }
     };
-    if !state
-        .auth
-        .verify(input.password, user.password_hash.clone())
-        .await?
-    {
+    // An account that only signs in with GitHub has no password: the same answer as any other
+    // failure, after the same work.
+    let Some(hash) = user.password_hash.clone() else {
+        state.auth.verify_dummy(input.password).await?;
+        return Err(invalid_credentials());
+    };
+    if !state.auth.verify(input.password, hash).await? {
         return Err(invalid_credentials());
     }
     signed_in(&state, StatusCode::OK, &user)

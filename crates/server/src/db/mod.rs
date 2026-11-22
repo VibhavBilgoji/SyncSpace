@@ -41,6 +41,8 @@ pub struct IndexSpec {
     pub collection: &'static str,
     pub keys: &'static [(&'static str, i32)],
     pub unique: bool,
+    /// Only documents that have the field are indexed, so many documents may lack it.
+    pub sparse: bool,
 }
 
 impl IndexSpec {
@@ -68,26 +70,37 @@ pub const INDEXES: &[IndexSpec] = &[
         collection: "users",
         keys: &[("email", 1)],
         unique: true,
+        sparse: false,
+    },
+    IndexSpec {
+        collection: "users",
+        keys: &[("github_id", 1)],
+        unique: true,
+        sparse: true,
     },
     IndexSpec {
         collection: "workspaces",
         keys: &[("slug", 1)],
         unique: true,
+        sparse: false,
     },
     IndexSpec {
         collection: "workspaces",
         keys: &[("members.user_id", 1)],
         unique: false,
+        sparse: false,
     },
     IndexSpec {
         collection: "documents",
         keys: &[("workspace_id", 1), ("updated_at", -1)],
         unique: false,
+        sparse: false,
     },
     IndexSpec {
         collection: "document_versions",
         keys: &[("document_id", 1), ("version_number", -1)],
         unique: true,
+        sparse: false,
     },
     IndexSpec {
         collection: "document_versions",
@@ -97,26 +110,31 @@ pub const INDEXES: &[IndexSpec] = &[
             ("version_number", -1),
         ],
         unique: false,
+        sparse: false,
     },
     IndexSpec {
         collection: "boards",
         keys: &[("workspace_id", 1)],
         unique: false,
+        sparse: false,
     },
     IndexSpec {
         collection: "tasks",
         keys: &[("board_id", 1), ("status", 1), ("order", 1)],
         unique: false,
+        sparse: false,
     },
     IndexSpec {
         collection: "tasks",
         keys: &[("workspace_id", 1), ("assignee_ids", 1)],
         unique: false,
+        sparse: false,
     },
     IndexSpec {
         collection: "audit_logs",
         keys: &[("workspace_id", 1), ("timestamp", -1), ("_id", -1)],
         unique: false,
+        sparse: false,
     },
 ];
 
@@ -142,6 +160,9 @@ pub async fn ping(db: &Database) -> Result<(), mongodb::error::Error> {
 pub async fn ensure_indexes(db: &Database) -> Result<(), mongodb::error::Error> {
     for spec in INDEXES {
         let mut options = IndexOptions::default();
+        if spec.sparse {
+            options.sparse = Some(true);
+        }
         if spec.unique {
             options.unique = Some(true);
         }
@@ -174,15 +195,15 @@ mod tests {
     }
 
     #[test]
-    fn the_table_has_ten_distinct_indexes_over_the_documented_collections() {
-        assert_eq!(INDEXES.len(), 10);
+    fn the_table_has_eleven_distinct_indexes_over_the_documented_collections() {
+        assert_eq!(INDEXES.len(), 11);
         let mut names: Vec<_> = INDEXES
             .iter()
             .map(|s| format!("{}.{}", s.collection, s.name()))
             .collect();
         names.sort();
         names.dedup();
-        assert_eq!(names.len(), 10, "duplicate index in the table");
+        assert_eq!(names.len(), 11, "duplicate index in the table");
         for spec in INDEXES {
             assert!(
                 [
@@ -270,8 +291,8 @@ mod tests {
         );
         assert_eq!(
             documented.len(),
-            10,
-            "the parser should find all ten indexes"
+            11,
+            "the parser should find all eleven indexes"
         );
     }
 
@@ -286,6 +307,7 @@ mod tests {
             unique,
             vec![
                 "users.email_1",
+                "users.github_id_1",
                 "workspaces.slug_1",
                 "document_versions.document_id_1_version_number_-1"
             ]

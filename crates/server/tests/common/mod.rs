@@ -71,6 +71,16 @@ pub fn env_map(uri: &str, db_name: &str, origins: &str) -> HashMap<String, Strin
     .collect()
 }
 
+/// reqwest is built without a TLS provider of its own (the server installs `ring` itself), and it
+/// refuses to build any client, even for plain HTTP, until one is installed. Call this before the
+/// first `reqwest::Client` of a test. Installing it twice is harmless.
+pub fn install_tls() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 pub fn test_config(uri: &str, db_name: &str, origins: &str) -> Config {
     Config::from_map(&env_map(uri, db_name, origins)).unwrap()
 }
@@ -161,6 +171,8 @@ pub struct AppOptions {
     pub hub: Option<HubConfig>,
     /// The `METRICS_TOKEN` value (`None`: not set).
     pub metrics_token: Option<&'static str>,
+    /// Sign in with GitHub is on, talking to a fake GitHub at this URL (`None`: off).
+    pub github: Option<String>,
 }
 
 impl Default for AppOptions {
@@ -172,6 +184,7 @@ impl Default for AppOptions {
             hash_limits: None,
             hub: None,
             metrics_token: Some(METRICS_TOKEN),
+            github: None,
         }
     }
 }
@@ -220,6 +233,17 @@ impl TestApp {
             if let Some(token) = options.metrics_token {
                 vars.insert("METRICS_TOKEN".to_string(), token.to_string());
             }
+            if let Some(url) = &options.github {
+                for (name, value) in [
+                    ("GITHUB_CLIENT_ID", "test-client"),
+                    ("GITHUB_CLIENT_SECRET", "test-secret-value"),
+                    ("PUBLIC_WEB_URL", "http://localhost:3000"),
+                    ("GITHUB_OAUTH_URL", url.as_str()),
+                    ("GITHUB_API_URL", url.as_str()),
+                ] {
+                    vars.insert(name.to_string(), value.to_string());
+                }
+            }
             Config::from_map(&vars).unwrap()
         };
         let (test_db, config) = match options.mongo {
@@ -258,10 +282,13 @@ impl TestApp {
 
         Self {
             addr,
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap(),
+            client: {
+                install_tls();
+                reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .unwrap()
+            },
             db,
             auth,
             hub,
@@ -317,7 +344,9 @@ impl TestApp {
             id,
             email: email.clone(),
             name: name.to_string(),
-            password_hash: "not a real hash".to_string(),
+            password_hash: Some("not a real hash".to_string()),
+            github_id: None,
+            github_login: None,
             created_at: DateTime::now(),
         };
         users::insert(&self.db, &user).await.unwrap();

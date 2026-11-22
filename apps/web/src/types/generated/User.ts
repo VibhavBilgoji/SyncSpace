@@ -3,4 +3,8 @@
 /**
  * The `User` of `docs/API.md` section 4. It never carries the password hash.
  */
-export type User = { id: string, name: string, email: string, };
+export type User = { id: string, name: string, email: string, 
+/**
+ * The linked GitHub account, if any (ADR-015). Public repositories are listed from it.
+ */
+github_login: string | null, };

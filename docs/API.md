@@ -4,7 +4,9 @@ Base path for REST: `/api/v1`. JSON bodies use `snake_case`. Ids are 24-characte
 
 ## 1. Conventions
 
-**Auth.** `POST /auth/register` and `POST /auth/login` set the cookie `ss_session`: a signed HS256 JWT valid for 24 hours, sent as `ss_session=<jwt>; Max-Age=86400; Path=/; HttpOnly; SameSite=Lax`, plus `Secure` whenever `COOKIE_SECURE` is true (always in production). Every endpoint except register, login and `/healthz` requires it; a missing, expired, forged or malformed session is always the same 401 `not signed in`. The token carries the user id (`sub`), `iat` and `exp` and is stateless: logout clears the cookie but cannot revoke a token before it expires.
+**Auth.** `POST /auth/register` and `POST /auth/login` set the cookie `ss_session`: a signed HS256 JWT valid for 24 hours, sent as `ss_session=<jwt>; Max-Age=86400; Path=/; HttpOnly; SameSite=Lax`, plus `Secure` whenever `COOKIE_SECURE` is true (always in production). Every endpoint except register, login, the providers and GitHub sign-in routes and `/healthz` requires it; a missing, expired, forged or malformed session is always the same 401 `not signed in`. The token carries the user id (`sub`), `iat` and `exp` and is stateless: logout clears the cookie but cannot revoke a token before it expires.
+
+**Sign in with GitHub (ADR-015).** Optional: it exists only when `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and `PUBLIC_WEB_URL` are set (`docs/DEPLOYMENT.md` section 5). The browser goes to `GET /auth/github/start` through the web domain, approves on GitHub (scopes `read:user user:email`, never a repository scope) and returns to `GET /auth/github/callback` on the web domain, so the session cookie is first-party. The server checks the `state` against the `ss_gh_state` cookie *before* it calls GitHub, trades the code for a token, reads the profile and the email list, and drops the token: it is never stored or logged. The person is the user already linked to that GitHub id; else, when somebody is signed in, that person (a link, whatever their email); else the user with one of the account's *verified* email addresses (a link); else a new user from the primary verified address. A GitHub account belongs to one user and a user has at most one GitHub account (`conflict` otherwise). Accounts created this way have no password. Public repositories are listed by the browser from `GET https://api.github.com/users/<github_login>/repos`, with no credential.
 
 **Errors.** Always `{"error": {"code": "...", "message": "...", "details": {...}?}}`.
 
@@ -37,6 +39,9 @@ Role column: minimum role needed in the workspace the resource belongs to.
 | `POST /auth/login` | public | `{email, password}` | 200 `User` + session cookie; 401 `invalid email or password` for any failure, byte for byte the same for an unknown email, a wrong password and over-long input |
 | `POST /auth/logout` | user | | 204 and a `Set-Cookie` that expires `ss_session` at once; 401 without a valid session |
 | `GET /auth/me` | user | | `User`; 401 when the session is not valid or the account no longer exists |
+| `GET /auth/providers` | public | | `{github: boolean}`: whether the sign-in page may offer "Continue with GitHub" |
+| `GET /auth/github/start` | public | `?next=/w/...` (optional, a plain path of the app) | 302 to GitHub with a random `state` (also set as the HttpOnly cookie `ss_gh_state`, 10 minutes); 404 when GitHub sign-in is not configured |
+| `GET /auth/github/callback` | public | `?code&state` (or `?error`), from GitHub | always 302: to `next` (default `/w`) with the session cookie on success, to `/login?github_error=<code>` otherwise (`denied`, `state`, `failed`, `no_email`, `conflict`) |
 | `POST /auth/ws-ticket` | member | `{scope: "doc" | "workspace", id}` | `{ticket, expires_at}` valid 30 s, single use |
 
 **Account rules.** `name`: trimmed, 1 to 80 characters, no control characters. `email`: trimmed and stored lower-cased (so `Ada@Example.com` and `ada@example.com` are one account), ASCII only, at most 254 characters, a plain `local@domain.tld` address. `password`: 8 to 128 characters counted as characters and not bytes, never trimmed or changed, stored only as an argon2id hash (19 MiB, 2 iterations, 1 lane) and never returned. A taken email is a 409; two simultaneous registrations of one email give one 201 and one 409. A login for an unknown email still verifies a dummy hash, so it takes as long as a wrong password. Registration, login and logout are not audited (they are not in the audit table of `DATA_MODEL.md`).
@@ -170,10 +175,11 @@ type Status = "BACKLOG" | "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 type ChangeType = "AUTOMATIC" | "MANUAL" | "RESTORE";
 
-interface User { id: string; name: string; email: string }
+interface User { id: string; name: string; email: string; github_login: string | null }
 interface Workspace { id: string; name: string; slug: string; owner_id: string; role: Role /* the caller's */; created_at: string; updated_at: string }
 interface WorkspaceSummary { id: string; name: string; slug: string; role: Role; is_owner: boolean; member_count: number; document_count: number; board_count: number }
 interface UserRef { id: string; name: string }
+interface AuthProviders { github: boolean }
 interface DocumentSummary { id: string; title: string; icon: string; revision: number; updated_at: string }
 interface Document { id: string; workspace_id: string; title: string; icon: string; revision: number; blocks: Block[];
                      created_by: string; created_at: string; updated_at: string }

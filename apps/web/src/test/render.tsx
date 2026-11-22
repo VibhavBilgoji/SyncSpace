@@ -5,7 +5,12 @@ import { ApiError, api } from "@/lib/api";
 import { SessionProvider } from "@/lib/session";
 import type { User, WorkspaceSummary } from "@/types/generated";
 
-export const ada: User = { id: "a".repeat(24), name: "Ada Lovelace", email: "ada@example.com" };
+export const ada: User = {
+  id: "a".repeat(24),
+  name: "Ada Lovelace",
+  email: "ada@example.com",
+  github_login: null,
+};
 
 export function workspaceSummary(overrides: Partial<WorkspaceSummary> = {}): WorkspaceSummary {
   return {

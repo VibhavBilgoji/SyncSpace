@@ -111,7 +111,11 @@ async fn register_creates_the_account_and_starts_a_session() {
     // The answer is exactly the User of docs/API.md: nothing else, least of all a hash.
     let mut keys: Vec<_> = body.as_object().unwrap().keys().cloned().collect();
     keys.sort();
-    assert_eq!(keys, ["email", "id", "name"]);
+    assert_eq!(keys, ["email", "github_login", "id", "name"]);
+    assert!(
+        body["github_login"].is_null(),
+        "a password account has no GitHub link"
+    );
     assert_eq!(body["name"], "Ada Lovelace");
     assert_eq!(body["email"], "ada@example.com");
     let id = body["id"].as_str().unwrap();
@@ -207,7 +211,9 @@ async fn the_unique_index_is_the_final_word_on_a_duplicate_email() {
         id: ObjectId::new(),
         email: email.to_string(),
         name: "Ada".to_string(),
-        password_hash: "$argon2id$placeholder".to_string(),
+        password_hash: Some("$argon2id$placeholder".to_string()),
+        github_id: None,
+        github_login: None,
         created_at: DateTime::now(),
     };
     users::insert(&app.db, &user("same@example.com"))

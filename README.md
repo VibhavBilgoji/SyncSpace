@@ -29,6 +29,7 @@ The live site, with the seeded demo data (workspace "Engineering Team").
 - **Roles enforced by the server.** Admin, Editor and Viewer. Every REST route and every WebSocket frame checks the caller's role; the UI only hides what would be refused. A role change or a removal closes that person's open sockets at once.
 - **Version history.** Save a named version, preview it read-only, restore it for everybody (live), and undo a restore.
 - **Kanban boards.** Five fixed columns, tasks with priority, tags and assignees, drag and drop with pointer **and keyboard**, arrow buttons and a status dropdown as the fallback, and live updates through a workspace socket.
+- **Sign in with GitHub and Repositories.** Optional "Continue with GitHub" (OAuth, identity and verified email only, no token stored) that links to the account with the same verified email, and a Repositories page with the public repositories of the linked GitHub account (filter, language, stars, forks). Off until the server has a GitHub OAuth App configured (`docs/DEPLOYMENT.md`).
 - **Members screen.** Add a registered account, change a role (with a confirmation), remove a member; the owner cannot be changed.
 - **Audit trail.** Ten audited actions (members, documents, versions, tasks), written by the server in the same code path as the action, never updated or deleted; an Admin reads them in a table with an action filter.
 - **Search and command palette.** The header search field, or Ctrl/Cmd + K, finds documents, boards, Settings & Members and (for admins) the Audit Trail; arrow keys, Enter and Esc.

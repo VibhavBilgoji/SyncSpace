@@ -81,6 +81,7 @@ fn export_all(config: &Config) -> Result<(), Box<dyn Error>> {
     // Types that have handlers (and the request bodies).
     Role::export_all(config)?;
     UserResponse::export_all(config)?;
+    crate::auth::github::ProvidersResponse::export_all(config)?;
     RegisterInput::export_all(config)?;
     LoginInput::export_all(config)?;
     WorkspaceResponse::export_all(config)?;

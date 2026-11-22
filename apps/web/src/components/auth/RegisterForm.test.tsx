@@ -73,4 +73,13 @@ describe("RegisterForm", () => {
     fireEvent.click(submit());
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not create the account");
   });
+
+  it("offers Continue with GitHub when the server has it set up", async () => {
+    vi.spyOn(api.auth, "providers").mockResolvedValue({ github: true });
+    renderWithSession(<RegisterForm />);
+    expect(await screen.findByRole("link", { name: /Continue with GitHub/ })).toHaveAttribute(
+      "href",
+      "/api/v1/auth/github/start",
+    );
+  });
 });
